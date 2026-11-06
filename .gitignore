@@ -1,0 +1,39 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test artifacts
+*.out
+coverage.html
+
+# Environment and secrets
+.env
+.env.local
+*.pem
+*.key
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# Node / Web Frontend
+web/node_modules/
+web/dist/
+web/.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Docker & Database volume mounts
+postgres_data/
+redis_data/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo

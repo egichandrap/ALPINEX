@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: alpinex-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-alpinex}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-alpinex_secret}
+      POSTGRES_DB: ${DB_NAME:-alpinex_db}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-alpinex} -d ${DB_NAME:-alpinex_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: alpinex-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.api
+    container_name: alpinex-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    ports:
+      - "${APP_PORT:-8080}:8080"
+
+  worker:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.worker
+    container_name: alpinex-worker
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    env_file:
+      - .env
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.web
+    container_name: alpinex-web
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  redis_data:
