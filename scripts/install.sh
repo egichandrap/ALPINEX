@@ -26,7 +26,7 @@ WEB_PORT="3000"
 API_PORT="8080"
 CLI_ONLY=false
 NON_INTERACTIVE=false
-REPO_RAW_URL="https://raw.githubusercontent.com/alpinex/alpinex/main"
+REPO_RAW_URL="https://raw.githubusercontent.com/egichandrap/ALPINEX/main"
 
 # Parse CLI arguments
 while [[ "$#" -gt 0 ]]; do
@@ -107,7 +107,7 @@ if [ "$CLI_ONLY" = true ]; then
 
   info "Downloading pre-compiled binary for ${OS}/${ARCH}..."
   # Download pre-built CLI from releases (or local build fallback)
-  DOWNLOAD_URL="https://github.com/alpinex/alpinex/releases/latest/download/alpinex-${OS}-${ARCH}"
+  DOWNLOAD_URL="https://github.com/egichandrap/ALPINEX/releases/latest/download/alpinex-${OS}-${ARCH}"
   
   if curl -sLf "$DOWNLOAD_URL" -o "${TARGET_BIN_DIR}/alpinex" 2>/dev/null; then
     chmod +x "${TARGET_BIN_DIR}/alpinex"
@@ -119,7 +119,7 @@ if [ "$CLI_ONLY" = true ]; then
     else
       warn "Pre-built binary release not found online; attempting local go build..."
       if command -v go >/dev/null 2>&1; then
-        go install github.com/alpinex/alpinex/cmd/cli@latest
+        go install github.com/egichandrap/ALPINEX/cmd/cli@latest
         TARGET_BIN_DIR="$(go env GOPATH)/bin"
       else
         error "Unable to download binary and Go compiler is not installed."
@@ -251,7 +251,7 @@ services:
   api:
     image: alpinex/api:latest
     build:
-      context: https://github.com/alpinex/alpinex.git#main
+      context: https://github.com/egichandrap/ALPINEX.git#main
       dockerfile: deploy/Dockerfile.api
     container_name: alpinex-api
     restart: unless-stopped
@@ -268,7 +268,7 @@ services:
   worker:
     image: alpinex/worker:latest
     build:
-      context: https://github.com/alpinex/alpinex.git#main
+      context: https://github.com/egichandrap/ALPINEX.git#main
       dockerfile: deploy/Dockerfile.worker
     container_name: alpinex-worker
     restart: unless-stopped
@@ -283,7 +283,7 @@ services:
   web:
     image: alpinex/web:latest
     build:
-      context: https://github.com/alpinex/alpinex.git#main
+      context: https://github.com/egichandrap/ALPINEX.git#main
       dockerfile: deploy/Dockerfile.web
     container_name: alpinex-web
     restart: unless-stopped

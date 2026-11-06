@@ -15,7 +15,7 @@ ALPINEX is an open-source, self-hosted platform unifying API development, functi
 You can install and launch the entire ALPINEX platform with a single command without needing to clone the Git repository:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/alpinex/alpinex/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/egichandrap/ALPINEX/main/scripts/install.sh | bash
 ```
 
 ### What this installer does automatically:
@@ -33,13 +33,13 @@ You can customize the port or installation directory by passing arguments:
 
 ```bash
 # Run Web UI on port 8080 and API on port 9000
-curl -fsSL https://raw.githubusercontent.com/alpinex/alpinex/main/scripts/install.sh | bash -s -- --port 8080 --api-port 9000
+curl -fsSL https://raw.githubusercontent.com/egichandrap/ALPINEX/main/scripts/install.sh | bash -s -- --port 8080 --api-port 9000
 
 # Install to a custom directory (e.g., /opt/alpinex)
-curl -fsSL https://raw.githubusercontent.com/alpinex/alpinex/main/scripts/install.sh | bash -s -- --dir /opt/alpinex
+curl -fsSL https://raw.githubusercontent.com/egichandrap/ALPINEX/main/scripts/install.sh | bash -s -- --dir /opt/alpinex
 
 # Install CLI binary only (no Docker / headless runner for CI/CD)
-curl -fsSL https://raw.githubusercontent.com/alpinex/alpinex/main/scripts/install.sh | bash -s -- --cli-only
+curl -fsSL https://raw.githubusercontent.com/egichandrap/ALPINEX/main/scripts/install.sh | bash -s -- --cli-only
 ```
 
 ---
@@ -104,8 +104,8 @@ If you wish to contribute to ALPINEX or run directly from source:
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/alpinex/alpinex.git
-cd alpinex
+git clone https://github.com/egichandrap/ALPINEX.git
+cd ALPINEX
 
 # 2. Setup configuration
 cp .env.example .env
