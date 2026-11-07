@@ -249,7 +249,7 @@ export default function App() {
           </div>
           <div>
             <h1 style={{ fontSize: '16px', fontWeight: 'bold', letterSpacing: '0.5px' }}>ALPINEX</h1>
-            <span style={{ fontSize: '11px', color: '#9ca3af' }}>v1.0.1 • Community</span>
+            <span style={{ fontSize: '11px', color: '#9ca3af' }}>v1.0.2 • Community</span>
           </div>
         </div>
 

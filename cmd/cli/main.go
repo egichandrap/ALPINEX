@@ -33,7 +33,7 @@ func main() {
 	case "test", "run":
 		runTestCmd(os.Args[2:])
 	case "version":
-		fmt.Printf("ALPINEX CLI v1.0.1 (%s/%s)\n", runtime.GOOS, runtime.GOARCH)
+		fmt.Printf("ALPINEX CLI v1.0.2 (%s/%s)\n", runtime.GOOS, runtime.GOARCH)
 		os.Exit(ExitSuccess)
 	default:
 		fmt.Printf("Unknown command: %s\n\n", command)

@@ -300,7 +300,7 @@ fi
 
 # Launch Containers
 info "Starting ALPINEX containers via Docker Compose..."
-$DOCKER_COMPOSE_CMD up -d
+$DOCKER_COMPOSE_CMD up -d --build
 
 # Create global wrapper script 'alpinex' in user PATH if writable
 BIN_WRAPPER="/usr/local/bin/alpinex"
