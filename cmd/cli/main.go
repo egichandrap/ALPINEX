@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -32,7 +33,7 @@ func main() {
 	case "test", "run":
 		runTestCmd(os.Args[2:])
 	case "version":
-		fmt.Println("ALPINEX CLI v1.0.0 (darwin/arm64)")
+		fmt.Printf("ALPINEX CLI v1.0.1 (%s/%s)\n", runtime.GOOS, runtime.GOARCH)
 		os.Exit(ExitSuccess)
 	default:
 		fmt.Printf("Unknown command: %s\n\n", command)

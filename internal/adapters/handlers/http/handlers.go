@@ -269,6 +269,6 @@ func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	JSONResponse(w, r, http.StatusOK, map[string]string{
 		"status":  "healthy",
 		"service": "alpinex-api",
-		"version": "1.0.0",
+		"version": "1.0.1",
 	})
 }
