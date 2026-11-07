@@ -31,6 +31,8 @@ import { AddCollectionModal } from './components/AddCollectionModal';
 import { RequestConfigModal } from './components/RequestConfigModal';
 import { LoginPage } from './components/LoginPage';
 import { ProjectSwitcher } from './components/ProjectSwitcher';
+import { FunctionalSuitesView } from './components/FunctionalSuitesView';
+import { ReportsView } from './components/ReportsView';
 
 interface MetricPoint {
   time: string;
@@ -1353,6 +1355,14 @@ export default function App() {
                 </div>
               )}
             </div>
+          )}
+
+          {activeTab === 'functional' && (
+            <FunctionalSuitesView authToken={authToken} activeProjectName={activeProject.name} />
+          )}
+
+          {activeTab === 'reports' && (
+            <ReportsView />
           )}
 
           {activeTab === 'dashboard' && (
