@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Lock, User, AlertCircle, RefreshCw, KeyRound, ArrowRight } from 'lucide-react';
+import { Lock, User, AlertCircle, RefreshCw, ArrowRight } from 'lucide-react';
 import { UserProfile } from '../types/auth';
 
 interface LoginPageProps {
@@ -44,12 +44,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleAutoFill = () => {
-    setEmail('admin');
-    setPassword('admin');
-    setError(null);
   };
 
   return (
@@ -222,44 +216,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             {loading ? 'Authenticating...' : 'Sign In'}
           </button>
         </form>
-
-        {/* Helper Box for Default Credentials */}
-        <div
-          style={{
-            marginTop: '24px',
-            padding: '12px 14px',
-            backgroundColor: '#161e2e',
-            borderRadius: '6px',
-            border: '1px solid #1f2937',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <KeyRound size={16} color="#38bdf8" />
-            <div>
-              <div style={{ fontSize: '11px', color: '#9ca3af' }}>Default Credentials</div>
-              <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#38bdf8' }}>admin / admin</div>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={handleAutoFill}
-            style={{
-              padding: '4px 10px',
-              backgroundColor: '#1e293b',
-              border: '1px solid #374151',
-              borderRadius: '4px',
-              color: '#f3f4f6',
-              fontSize: '11px',
-              fontWeight: '500',
-              cursor: 'pointer',
-            }}
-          >
-            Auto-fill
-          </button>
-        </div>
       </div>
     </div>
   );
