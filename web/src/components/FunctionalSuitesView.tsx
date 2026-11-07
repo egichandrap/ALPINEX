@@ -1,30 +1,37 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Play,
   CheckCircle2,
   XCircle,
-  Clock,
   Plus,
   Trash2,
   ChevronRight,
-  ShieldCheck,
-  Zap,
-  ArrowRight,
+  Folder,
   RefreshCw,
   Terminal,
-  FileCheck
+  FileCheck,
+  ArrowUp,
+  ArrowDown,
+  Layers,
+  Sliders,
+  Sparkles,
+  Link2
 } from 'lucide-react';
-import { TestSuiteItem, TestCaseItem, Assertion } from '../types/functional';
+import { TestSuiteItem, TestCaseItem, Assertion, VariableExtraction, AssertionSource, AssertionOperator } from '../types/functional';
+import { CollectionItem, RequestItem, HTTPMethod } from '../types/collection';
 
 interface FunctionalSuitesViewProps {
   authToken: string | null;
   activeProjectName?: string;
+  collections: CollectionItem[];
 }
 
 const DEFAULT_SUITES: TestSuiteItem[] = [
   {
     id: 'suite-e2e-checkout',
     projectId: 'proj-sample',
+    collectionId: 'col-storefront',
+    collectionName: 'Storefront API',
     name: 'E-Commerce End-to-End Checkout Flow',
     description: 'Sequentially tests login, catalog lookup, cart item addition, and order placement with chained token',
     stopOnFailure: true,
@@ -72,44 +79,13 @@ const DEFAULT_SUITES: TestSuiteItem[] = [
       },
     ],
   },
-  {
-    id: 'suite-auth-lifecycle',
-    projectId: 'proj-sample',
-    name: 'Security & Auth Boundary Validation',
-    description: 'Verifies unauthorized rejections, token expiration, and permission gates',
-    stopOnFailure: false,
-    createdAt: new Date().toISOString(),
-    cases: [
-      {
-        id: 'step-auth-1',
-        name: 'Step 1: Rejected Unauthorized Request',
-        method: 'GET',
-        url: 'http://localhost:8080/api/v1/workspaces/ws-default/projects',
-        position: 1,
-        assertions: [
-          { id: 'a-sec-1', source: 'STATUS', operator: 'EQUALS', targetValue: '401' },
-        ],
-        extractions: [],
-      },
-      {
-        id: 'step-auth-2',
-        name: 'Step 2: Valid Login & Token Issuance',
-        method: 'POST',
-        url: 'http://localhost:8080/api/v1/auth/login',
-        body: '{\n  "email": "admin",\n  "password": "admin"\n}',
-        position: 2,
-        assertions: [
-          { id: 'a-sec-2', source: 'STATUS', operator: 'EQUALS', targetValue: '200' },
-        ],
-        extractions: [
-          { variableName: 'session_token', source: 'JSON_PATH', propertyPath: '$.token' },
-        ],
-      },
-    ],
-  },
 ];
 
-export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({ authToken, activeProjectName }) => {
+export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
+  authToken,
+  activeProjectName,
+  collections = [],
+}) => {
   const [suites, setSuites] = useState<TestSuiteItem[]>(() => {
     try {
       const saved = localStorage.getItem('alpinex_functional_suites');
@@ -123,14 +99,171 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({ auth
   const [isRunning, setIsRunning] = useState(false);
   const [stepResults, setStepResults] = useState<Record<string, { status: 'PENDING' | 'RUNNING' | 'PASSED' | 'FAILED'; latency?: number; details?: string }>>({});
   const [logs, setLogs] = useState<string[]>([]);
+
+  // Modal: New Test Suite
   const [isNewSuiteModalOpen, setIsNewSuiteModalOpen] = useState(false);
   const [newSuiteName, setNewSuiteName] = useState('');
   const [newSuiteDesc, setNewSuiteDesc] = useState('');
+  const [selectedCollectionId, setSelectedCollectionId] = useState<string>('');
+  const [autoImportEndpoints, setAutoImportEndpoints] = useState(true);
+  const [stopOnFailure, setStopOnFailure] = useState(true);
+
+  // Modal: Add Endpoint/Step to Pipeline
+  const [isAddStepModalOpen, setIsAddStepModalOpen] = useState(false);
+  const [stepSourceMode, setStepSourceMode] = useState<'COLLECTION' | 'CUSTOM'>('COLLECTION');
+  const [chosenColId, setChosenColId] = useState<string>('');
+  const [chosenReqId, setChosenReqId] = useState<string>('');
+  const [stepName, setStepName] = useState('');
+  const [stepMethod, setStepMethod] = useState<HTTPMethod>('GET');
+  const [stepUrl, setStepUrl] = useState('');
+  const [stepBody, setStepBody] = useState('');
+  const [stepAssertions, setStepAssertions] = useState<Assertion[]>([
+    { id: 'a-def-1', source: 'STATUS', operator: 'EQUALS', targetValue: '200' },
+    { id: 'a-def-2', source: 'RESPONSE_TIME', operator: 'LESS_THAN', targetValue: '500' },
+  ]);
+  const [stepExtractions, setStepExtractions] = useState<VariableExtraction[]>([]);
+
+  // Sync suites to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('alpinex_functional_suites', JSON.stringify(suites));
+    } catch (e) {
+      console.error('Failed to save functional suites to localStorage', e);
+    }
+  }, [suites]);
 
   const activeSuite = suites.find((s) => s.id === selectedSuiteId) || suites[0];
 
+  // Open Add Step Modal
+  const handleOpenAddStepModal = () => {
+    const defaultColId = activeSuite?.collectionId || collections[0]?.id || '';
+    setChosenColId(defaultColId);
+    setStepSourceMode('COLLECTION');
+    setStepAssertions([
+      { id: `a-${Date.now()}-1`, source: 'STATUS', operator: 'EQUALS', targetValue: '200' },
+      { id: `a-${Date.now()}-2`, source: 'RESPONSE_TIME', operator: 'LESS_THAN', targetValue: '500' },
+    ]);
+    setStepExtractions([]);
+
+    // Prepopulate first request of that collection if exists
+    const col = collections.find((c) => c.id === defaultColId);
+    if (col && col.requests.length > 0) {
+      const firstReq = col.requests[0];
+      setChosenReqId(firstReq.id);
+      setStepName(firstReq.name);
+      setStepMethod(firstReq.method);
+      setStepUrl(firstReq.url);
+      setStepBody(firstReq.body || '');
+    } else {
+      setChosenReqId('');
+      setStepName('');
+      setStepMethod('GET');
+      setStepUrl('{{base_url}}/api/v1/resource');
+      setStepBody('');
+    }
+
+    setIsAddStepModalOpen(true);
+  };
+
+  // Handle request selection in Add Step Modal
+  const handleSelectRequestForStep = (reqId: string, colId: string) => {
+    setChosenReqId(reqId);
+    const col = collections.find((c) => c.id === colId);
+    const req = col?.requests.find((r) => r.id === reqId);
+    if (req) {
+      setStepName(req.name);
+      setStepMethod(req.method);
+      setStepUrl(req.url);
+      setStepBody(req.body || '');
+      setStepAssertions([
+        { id: `a-${Date.now()}-1`, source: 'STATUS', operator: 'EQUALS', targetValue: req.method === 'POST' ? '201' : '200' },
+        { id: `a-${Date.now()}-2`, source: 'RESPONSE_TIME', operator: 'LESS_THAN', targetValue: '500' },
+      ]);
+      // If it looks like a login endpoint, suggest extracting token!
+      if (req.url.toLowerCase().includes('login') || req.name.toLowerCase().includes('login') || req.name.toLowerCase().includes('auth')) {
+        setStepExtractions([{ variableName: 'auth_token', source: 'JSON_PATH', propertyPath: '$.token' }]);
+      }
+    }
+  };
+
+  // Add Step to Active Suite
+  const handleSaveStepToSuite = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stepUrl.trim() || !activeSuite) return;
+
+    const newStep: TestCaseItem = {
+      id: `step-${Date.now()}`,
+      requestId: chosenReqId || undefined,
+      name: stepName.trim() || `${stepMethod} ${stepUrl}`,
+      method: stepMethod,
+      url: stepUrl.trim(),
+      body: stepBody.trim() ? stepBody : undefined,
+      position: activeSuite.cases.length + 1,
+      assertions: stepAssertions,
+      extractions: stepExtractions,
+    };
+
+    setSuites((prev) =>
+      prev.map((s) => {
+        if (s.id === activeSuite.id) {
+          return {
+            ...s,
+            cases: [...s.cases, newStep],
+          };
+        }
+        return s;
+      })
+    );
+
+    setIsAddStepModalOpen(false);
+  };
+
+  // Re-order step position
+  const handleMoveStep = (index: number, direction: 'UP' | 'DOWN') => {
+    if (!activeSuite) return;
+    const cases = [...activeSuite.cases];
+    const targetIndex = direction === 'UP' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= cases.length) return;
+
+    const temp = cases[index];
+    cases[index] = cases[targetIndex];
+    cases[targetIndex] = temp;
+
+    // Recalculate positions
+    const reordered = cases.map((c, i) => ({ ...c, position: i + 1 }));
+
+    setSuites((prev) =>
+      prev.map((s) => (s.id === activeSuite.id ? { ...s, cases: reordered } : s))
+    );
+  };
+
+  // Delete step from suite
+  const handleDeleteStep = (stepId: string) => {
+    if (!activeSuite) return;
+    if (!confirm('Remove this endpoint step from the suite?')) return;
+
+    const filtered = activeSuite.cases
+      .filter((c) => c.id !== stepId)
+      .map((c, i) => ({ ...c, position: i + 1 }));
+
+    setSuites((prev) =>
+      prev.map((s) => (s.id === activeSuite.id ? { ...s, cases: filtered } : s))
+    );
+  };
+
+  // Delete whole suite
+  const handleDeleteSuite = (suiteId: string) => {
+    if (!confirm('Are you sure you want to delete this functional test suite?')) return;
+    const remaining = suites.filter((s) => s.id !== suiteId);
+    setSuites(remaining);
+    if (remaining.length > 0) {
+      setSelectedSuiteId(remaining[0].id);
+    }
+  };
+
+  // Execute Test Suite (Automated Chained Execution)
   const handleRunSuite = async () => {
-    if (!activeSuite || isRunning) return;
+    if (!activeSuite || isRunning || activeSuite.cases.length === 0) return;
     setIsRunning(true);
     setLogs([]);
     const results: Record<string, { status: 'PENDING' | 'RUNNING' | 'PASSED' | 'FAILED'; latency?: number; details?: string }> = {};
@@ -146,10 +279,17 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({ auth
     };
 
     addLog(`Initiating Functional Suite: "${activeSuite.name}" (Engine: NATIVE_HTTP)`);
+    if (activeSuite.collectionName) {
+      addLog(`Bound Collection: ${activeSuite.collectionName}`);
+    }
     addLog(`Chaining enabled: ${activeSuite.cases.length} sequential test steps queued`);
 
     const extractedContext: Record<string, any> = {};
     let suiteFailed = false;
+
+    // Base URL resolution
+    const boundCol = collections.find((c) => c.id === activeSuite.collectionId);
+    const defaultBaseUrl = boundCol?.baseUrl || 'http://localhost:8080';
 
     for (let i = 0; i < activeSuite.cases.length; i++) {
       const step = activeSuite.cases[i];
@@ -163,7 +303,12 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({ auth
       const startTime = performance.now();
       try {
         let reqUrl = step.url;
-        // Resolve variables like {{auth_token}}
+        // Resolve {{base_url}}
+        if (reqUrl.includes('{{base_url}}')) {
+          reqUrl = reqUrl.replace(/\{\{base_url\}\}/g, defaultBaseUrl.replace(/\/$/, ''));
+        }
+
+        // Resolve extracted session variables like {{auth_token}} or {{order_id}}
         Object.entries(extractedContext).forEach(([k, v]) => {
           reqUrl = reqUrl.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), String(v));
         });
@@ -172,16 +317,24 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({ auth
           'Content-Type': 'application/json',
         };
 
+        // If an auth_token was extracted previously, automatically inject it!
         if (extractedContext['auth_token']) {
           headers['Authorization'] = `Bearer ${extractedContext['auth_token']}`;
         } else if (authToken && step.id !== 'step-auth-1') {
           headers['Authorization'] = `Bearer ${authToken}`;
         }
 
+        let bodyPayload = step.body;
+        if (bodyPayload && typeof bodyPayload === 'string') {
+          Object.entries(extractedContext).forEach(([k, v]) => {
+            bodyPayload = bodyPayload!.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), String(v));
+          });
+        }
+
         const res = await fetch(reqUrl, {
           method: step.method,
           headers,
-          body: step.body ? step.body : undefined,
+          body: step.method !== 'GET' && step.method !== 'HEAD' && bodyPayload ? bodyPayload : undefined,
         });
 
         const latency = Math.round(performance.now() - startTime);
@@ -205,26 +358,26 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({ auth
               failedReasons.push(`Response time ${latency}ms exceeded threshold ${maxMs}ms`);
             }
           } else if (assertion.source === 'JSON_PATH' && data) {
-            if (assertion.propertyPath === '$.token' || assertion.propertyPath === 'token') {
-              if (!data.token) {
-                stepPassed = false;
-                failedReasons.push('Token not found in payload');
-              }
-            } else if (assertion.propertyPath === '$.success') {
-              if (String(data.success) !== assertion.targetValue) {
-                stepPassed = false;
-                failedReasons.push(`Expected $.success == ${assertion.targetValue}`);
-              }
+            const prop = (assertion.propertyPath || '').replace(/^\$\.?/, '');
+            const val = prop ? data[prop] : data;
+            if (assertion.operator === 'EXISTS' && (val === undefined || val === null)) {
+              stepPassed = false;
+              failedReasons.push(`Path "${assertion.propertyPath}" does not exist in response`);
+            } else if (assertion.operator === 'EQUALS' && String(val) !== assertion.targetValue) {
+              stepPassed = false;
+              failedReasons.push(`Expected ${assertion.propertyPath} == ${assertion.targetValue}, got ${val}`);
             }
           }
         }
 
-        // Perform Extractions
+        // Perform Extractions into context
         if (data && step.extractions) {
           for (const ext of step.extractions) {
-            if (ext.propertyPath === '$.token' && data.token) {
-              extractedContext[ext.variableName] = data.token;
-              addLog(`  ↳ Extracted variable: \${${ext.variableName}} = "${data.token.substring(0, 15)}..."`);
+            const prop = ext.propertyPath.replace(/^\$\.?/, '');
+            const extractedVal = prop ? data[prop] : data;
+            if (extractedVal !== undefined) {
+              extractedContext[ext.variableName] = extractedVal;
+              addLog(`  ↳ Extracted variable: \${${ext.variableName}} = "${String(extractedVal).substring(0, 25)}"`);
             }
           }
         }
@@ -259,8 +412,7 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({ auth
         if (activeSuite.stopOnFailure) break;
       }
 
-      // Small pause between steps for realistic live feedback
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, 350));
     }
 
     addLog(`───────────────────────────────────────────────────────`);
@@ -268,37 +420,59 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({ auth
     setIsRunning(false);
   };
 
+  // Create New Suite Handler
   const handleCreateSuite = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSuiteName.trim()) return;
 
+    let initialCases: TestCaseItem[] = [];
+    let boundColName = undefined;
+
+    if (selectedCollectionId) {
+      const boundCol = collections.find((c) => c.id === selectedCollectionId);
+      if (boundCol) {
+        boundColName = boundCol.name;
+        if (autoImportEndpoints && boundCol.requests.length > 0) {
+          initialCases = boundCol.requests.map((req, idx) => ({
+            id: `step-${Date.now()}-${idx}`,
+            requestId: req.id,
+            name: req.name,
+            method: req.method,
+            url: req.url,
+            body: req.body,
+            position: idx + 1,
+            assertions: [
+              { id: `a-${Date.now()}-${idx}-1`, source: 'STATUS', operator: 'EQUALS', targetValue: req.method === 'POST' ? '201' : '200' },
+              { id: `a-${Date.now()}-${idx}-2`, source: 'RESPONSE_TIME', operator: 'LESS_THAN', targetValue: '500' },
+            ],
+            extractions:
+              req.url.toLowerCase().includes('login') || req.name.toLowerCase().includes('login')
+                ? [{ variableName: 'auth_token', source: 'JSON_PATH', propertyPath: '$.token' }]
+                : [],
+          }));
+        }
+      }
+    }
+
     const newSuite: TestSuiteItem = {
       id: `suite-${Math.random().toString(36).substring(2, 9)}`,
       projectId: 'proj-sample',
+      collectionId: selectedCollectionId || undefined,
+      collectionName: boundColName,
       name: newSuiteName.trim(),
-      description: newSuiteDesc.trim() || 'Custom functional test suite',
-      stopOnFailure: true,
-      cases: [
-        {
-          id: `step-${Date.now()}-1`,
-          name: 'Health Probe Step',
-          method: 'GET',
-          url: 'http://localhost:8080/health',
-          position: 1,
-          assertions: [{ id: 'a-new', source: 'STATUS', operator: 'EQUALS', targetValue: '200' }],
-          extractions: [],
-        },
-      ],
+      description: newSuiteDesc.trim() || 'Automated functional integration test suite',
+      stopOnFailure,
+      cases: initialCases,
       createdAt: new Date().toISOString(),
     };
 
     const updated = [newSuite, ...suites];
     setSuites(updated);
     setSelectedSuiteId(newSuite.id);
-    localStorage.setItem('alpinex_functional_suites', JSON.stringify(updated));
     setIsNewSuiteModalOpen(false);
     setNewSuiteName('');
     setNewSuiteDesc('');
+    setSelectedCollectionId('');
   };
 
   return (
@@ -311,11 +485,15 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({ auth
             Functional Suites (Chained API Automation)
           </h2>
           <p style={{ fontSize: '13px', color: '#9ca3af', marginTop: '4px' }}>
-            Orchestrate multi-step API workflows, variable extractions, and assertions with native test runners.
+            Orchestrate end-to-end API workflows with endpoints selected directly from your API collections.
           </p>
         </div>
         <button
-          onClick={() => setIsNewSuiteModalOpen(true)}
+          onClick={() => {
+            setSelectedCollectionId(collections[0]?.id || '');
+            setAutoImportEndpoints(true);
+            setIsNewSuiteModalOpen(true);
+          }}
           style={{
             backgroundColor: '#6366f1',
             color: 'white',
@@ -328,6 +506,7 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({ auth
             display: 'flex',
             alignItems: 'center',
             gap: '6px',
+            boxShadow: '0 4px 6px -1px rgba(99, 102, 241, 0.2)',
           }}
         >
           <Plus size={16} /> New Test Suite
@@ -339,43 +518,54 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({ auth
         {/* Left: Suites List */}
         <div style={{ width: '300px', backgroundColor: '#111827', borderRadius: '8px', border: '1px solid #1f2937', padding: '16px', display: 'flex', flexDirection: 'column' }}>
           <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#9ca3af', marginBottom: '12px', letterSpacing: '0.5px' }}>
-            AVAILABLE SUITES ({suites.length})
+            TEST SUITES ({suites.length})
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', overflowY: 'auto', flex: 1 }}>
-            {suites.map((s) => {
-              const isSelected = s.id === selectedSuiteId;
-              return (
-                <div
-                  key={s.id}
-                  onClick={() => {
-                    setSelectedSuiteId(s.id);
-                    setStepResults({});
-                    setLogs([]);
-                  }}
-                  style={{
-                    padding: '12px',
-                    borderRadius: '6px',
-                    border: isSelected ? '1px solid #6366f1' : '1px solid #1f2937',
-                    backgroundColor: isSelected ? '#1e1b4b' : '#0b0f19',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  <div style={{ fontSize: '13px', fontWeight: '600', color: isSelected ? '#f3f4f6' : '#d1d5db' }}>
-                    {s.name}
+            {suites.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '32px 10px', color: '#6b7280', fontSize: '12px' }}>
+                No suites created yet.
+              </div>
+            ) : (
+              suites.map((s) => {
+                const isSelected = s.id === selectedSuiteId;
+                return (
+                  <div
+                    key={s.id}
+                    onClick={() => {
+                      setSelectedSuiteId(s.id);
+                      setStepResults({});
+                      setLogs([]);
+                    }}
+                    style={{
+                      padding: '12px',
+                      borderRadius: '6px',
+                      border: isSelected ? '1px solid #6366f1' : '1px solid #1f2937',
+                      backgroundColor: isSelected ? '#1e1b4b' : '#0b0f19',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    <div style={{ fontSize: '13px', fontWeight: '600', color: isSelected ? '#f3f4f6' : '#d1d5db' }}>
+                      {s.name}
+                    </div>
+                    {s.collectionName && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#818cf8', marginTop: '3px' }}>
+                        <Folder size={11} /> {s.collectionName}
+                      </div>
+                    )}
+                    <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px', lineHeight: '1.4' }}>
+                      {s.description}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', fontSize: '11px', color: '#6b7280' }}>
+                      <span style={{ backgroundColor: '#1f2937', padding: '1px 6px', borderRadius: '4px', color: '#9ca3af' }}>
+                        {s.cases.length} Steps
+                      </span>
+                      {s.stopOnFailure && <span style={{ color: '#f59e0b' }}>Stop On Fail</span>}
+                    </div>
                   </div>
-                  <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px', lineHeight: '1.4' }}>
-                    {s.description}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', fontSize: '11px', color: '#6b7280' }}>
-                    <span style={{ backgroundColor: '#1f2937', padding: '1px 6px', borderRadius: '4px', color: '#9ca3af' }}>
-                      {s.cases.length} Steps
-                    </span>
-                    {s.stopOnFailure && <span style={{ color: '#f59e0b' }}>Stop On Fail</span>}
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </div>
 
@@ -386,18 +576,42 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({ auth
               {/* Suite Control Bar */}
               <div style={{ backgroundColor: '#111827', padding: '16px 20px', borderRadius: '8px', border: '1px solid #1f2937', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <h3 style={{ fontSize: '16px', fontWeight: 'bold', color: '#f3f4f6', margin: 0 }}>
-                    {activeSuite.name}
-                  </h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <h3 style={{ fontSize: '16px', fontWeight: 'bold', color: '#f3f4f6', margin: 0 }}>
+                      {activeSuite.name}
+                    </h3>
+                    {activeSuite.collectionName && (
+                      <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', backgroundColor: '#1e293b', color: '#818cf8', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Folder size={11} /> Source: {activeSuite.collectionName}
+                      </span>
+                    )}
+                  </div>
                   <div style={{ fontSize: '12px', color: '#9ca3af', marginTop: '4px' }}>
                     {activeSuite.description}
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <button
+                    onClick={() => handleDeleteSuite(activeSuite.id)}
+                    title="Delete suite"
+                    style={{
+                      background: 'transparent',
+                      border: '1px solid #374151',
+                      borderRadius: '6px',
+                      color: '#9ca3af',
+                      padding: '8px 10px',
+                      cursor: 'pointer',
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.color = '#ef4444')}
+                    onMouseLeave={(e) => (e.currentTarget.style.color = '#9ca3af')}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+
                   <button
                     onClick={handleRunSuite}
-                    disabled={isRunning}
+                    disabled={isRunning || activeSuite.cases.length === 0}
                     style={{
                       backgroundColor: isRunning ? '#374151' : '#10b981',
                       color: 'white',
@@ -406,7 +620,7 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({ auth
                       padding: '8px 20px',
                       fontWeight: '600',
                       fontSize: '13px',
-                      cursor: isRunning ? 'not-allowed' : 'pointer',
+                      cursor: isRunning || activeSuite.cases.length === 0 ? 'not-allowed' : 'pointer',
                       display: 'flex',
                       alignItems: 'center',
                       gap: '8px',
@@ -421,135 +635,243 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({ auth
 
               {/* Chained Pipeline Steps */}
               <div style={{ backgroundColor: '#111827', padding: '20px', borderRadius: '8px', border: '1px solid #1f2937', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#9ca3af', letterSpacing: '0.5px' }}>
-                  EXECUTION PIPELINE (SEQUENTIAL)
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#9ca3af', letterSpacing: '0.5px' }}>
+                    EXECUTION PIPELINE ({activeSuite.cases.length} ENDPOINTS SEQUENCED)
+                  </div>
+                  <button
+                    onClick={handleOpenAddStepModal}
+                    title="Add endpoint step to pipeline from API Collections"
+                    style={{
+                      backgroundColor: '#1f2937',
+                      color: '#f3f4f6',
+                      border: '1px solid #374151',
+                      borderRadius: '4px',
+                      padding: '5px 12px',
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      transition: 'background 0.15s',
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#374151')}
+                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#1f2937')}
+                  >
+                    <Plus size={14} color="#818cf8" />
+                    + Add Endpoint / Step
+                  </button>
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {activeSuite.cases.map((step, idx) => {
-                    const res = stepResults[step.id];
-                    const status = res?.status || 'PENDING';
+                  {activeSuite.cases.length === 0 ? (
+                    <div style={{ padding: '32px', textAlign: 'center', color: '#6b7280', border: '1px dashed #374151', borderRadius: '8px' }}>
+                      No endpoint steps in this suite. Click <strong>"+ Add Endpoint / Step"</strong> above to import endpoints from your API Collections.
+                    </div>
+                  ) : (
+                    activeSuite.cases.map((step, idx) => {
+                      const res = stepResults[step.id];
+                      const status = res?.status || 'PENDING';
 
-                    return (
-                      <div
-                        key={step.id}
-                        style={{
-                          backgroundColor: '#0b0f19',
-                          border: status === 'RUNNING' ? '1px solid #6366f1' : status === 'PASSED' ? '1px solid #059669' : status === 'FAILED' ? '1px solid #dc2626' : '1px solid #1f2937',
-                          borderRadius: '8px',
-                          padding: '14px 16px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          transition: 'border 0.2s',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: 0, flex: 1 }}>
-                          <div
-                            style={{
-                              width: '28px',
-                              height: '28px',
-                              borderRadius: '50%',
-                              backgroundColor: status === 'PASSED' ? '#064e3b' : status === 'FAILED' ? '#7f1d1d' : status === 'RUNNING' ? '#1e1b4b' : '#1f2937',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontSize: '12px',
-                              fontWeight: 'bold',
-                              color: status === 'PASSED' ? '#34d399' : status === 'FAILED' ? '#fca5a5' : status === 'RUNNING' ? '#a5f3fc' : '#9ca3af',
-                            }}
-                          >
-                            {status === 'PASSED' ? <CheckCircle2 size={16} /> : status === 'FAILED' ? <XCircle size={16} /> : status === 'RUNNING' ? <RefreshCw size={14} className="animate-spin" /> : idx + 1}
+                      return (
+                        <div
+                          key={step.id}
+                          style={{
+                            backgroundColor: '#0b0f19',
+                            border:
+                              status === 'RUNNING'
+                                ? '1px solid #6366f1'
+                                : status === 'PASSED'
+                                ? '1px solid #059669'
+                                : status === 'FAILED'
+                                ? '1px solid #dc2626'
+                                : '1px solid #1f2937',
+                            borderRadius: '8px',
+                            padding: '12px 16px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            transition: 'border 0.2s',
+                          }}
+                        >
+                          {/* Step Info */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flex: 1 }}>
+                            <div
+                              style={{
+                                width: '28px',
+                                height: '28px',
+                                borderRadius: '50%',
+                                backgroundColor:
+                                  status === 'PASSED'
+                                    ? '#064e3b'
+                                    : status === 'FAILED'
+                                    ? '#7f1d1d'
+                                    : status === 'RUNNING'
+                                    ? '#1e1b4b'
+                                    : '#1f2937',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '12px',
+                                fontWeight: 'bold',
+                                color:
+                                  status === 'PASSED'
+                                    ? '#34d399'
+                                    : status === 'FAILED'
+                                    ? '#fca5a5'
+                                    : status === 'RUNNING'
+                                    ? '#a5f3fc'
+                                    : '#9ca3af',
+                              }}
+                            >
+                              {status === 'PASSED' ? (
+                                <CheckCircle2 size={16} />
+                              ) : status === 'FAILED' ? (
+                                <XCircle size={16} />
+                              ) : status === 'RUNNING' ? (
+                                <RefreshCw size={14} className="animate-spin" />
+                              ) : (
+                                idx + 1
+                              )}
+                            </div>
+
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span
+                                  style={{
+                                    fontSize: '10px',
+                                    fontWeight: 'bold',
+                                    padding: '2px 5px',
+                                    borderRadius: '3px',
+                                    backgroundColor: step.method === 'GET' ? '#064e3b' : '#1e3a8a',
+                                    color: step.method === 'GET' ? '#34d399' : '#60a5fa',
+                                  }}
+                                >
+                                  {step.method}
+                                </span>
+                                <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#f3f4f6' }}>
+                                  {step.name}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: '11px', color: '#6b7280', fontFamily: 'monospace', marginTop: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {step.url}
+                              </div>
+                            </div>
                           </div>
 
-                          <div style={{ minWidth: 0, flex: 1 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <span
+                          {/* Assertions & Extractions Chips */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end', maxWidth: '300px' }}>
+                              {step.assertions.map((a, aidx) => (
+                                <span
+                                  key={aidx}
+                                  title={`${a.source} ${a.operator} ${a.targetValue}`}
+                                  style={{
+                                    fontSize: '10px',
+                                    padding: '2px 6px',
+                                    borderRadius: '4px',
+                                    backgroundColor: '#1f2937',
+                                    color: '#9ca3af',
+                                    border: '1px solid #374151',
+                                  }}
+                                >
+                                  {a.source} {a.operator === 'EQUALS' ? '=' : '<'} {a.targetValue}
+                                </span>
+                              ))}
+                              {step.extractions.map((e, eidx) => (
+                                <span
+                                  key={eidx}
+                                  title={`Extracts ${e.propertyPath} into \${${e.variableName}}`}
+                                  style={{
+                                    fontSize: '10px',
+                                    padding: '2px 6px',
+                                    borderRadius: '4px',
+                                    backgroundColor: '#3b0764',
+                                    color: '#c084fc',
+                                    border: '1px solid #581c87',
+                                  }}
+                                >
+                                  ↳ ${`{${e.variableName}}`}
+                                </span>
+                              ))}
+                            </div>
+
+                            {/* Position Re-order & Delete Controls */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <button
+                                onClick={() => handleMoveStep(idx, 'UP')}
+                                disabled={idx === 0}
+                                title="Move Step Up"
                                 style={{
-                                  fontSize: '10px',
-                                  fontWeight: 'bold',
-                                  padding: '2px 5px',
-                                  borderRadius: '3px',
-                                  backgroundColor: step.method === 'GET' ? '#064e3b' : '#1e3a8a',
-                                  color: step.method === 'GET' ? '#34d399' : '#60a5fa',
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: idx === 0 ? '#374151' : '#9ca3af',
+                                  cursor: idx === 0 ? 'default' : 'pointer',
+                                  padding: '4px',
                                 }}
                               >
-                                {step.method}
-                              </span>
-                              <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#f3f4f6' }}>
-                                {step.name}
-                              </span>
+                                <ArrowUp size={14} />
+                              </button>
+                              <button
+                                onClick={() => handleMoveStep(idx, 'DOWN')}
+                                disabled={idx === activeSuite.cases.length - 1}
+                                title="Move Step Down"
+                                style={{
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: idx === activeSuite.cases.length - 1 ? '#374151' : '#9ca3af',
+                                  cursor: idx === activeSuite.cases.length - 1 ? 'default' : 'pointer',
+                                  padding: '4px',
+                                }}
+                              >
+                                <ArrowDown size={14} />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteStep(step.id)}
+                                title="Delete step"
+                                style={{
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: '#6b7280',
+                                  cursor: 'pointer',
+                                  padding: '4px',
+                                }}
+                                onMouseEnter={(e) => (e.currentTarget.style.color = '#ef4444')}
+                                onMouseLeave={(e) => (e.currentTarget.style.color = '#6b7280')}
+                              >
+                                <Trash2 size={14} />
+                              </button>
                             </div>
-                            <div style={{ fontSize: '11px', color: '#6b7280', fontFamily: 'monospace', marginTop: '3px' }}>
-                              {step.url}
+
+                            {/* Verdict / Latency Badge */}
+                            <div style={{ minWidth: '75px', textAlign: 'right' }}>
+                              {status === 'PASSED' && (
+                                <span style={{ color: '#10b981', fontWeight: 'bold', fontSize: '12px' }}>
+                                  PASSED <span style={{ fontSize: '10px', color: '#6b7280' }}>({res?.latency}ms)</span>
+                                </span>
+                              )}
+                              {status === 'FAILED' && (
+                                <span style={{ color: '#ef4444', fontWeight: 'bold', fontSize: '12px' }}>
+                                  FAILED
+                                </span>
+                              )}
+                              {status === 'RUNNING' && (
+                                <span style={{ color: '#38bdf8', fontWeight: '600', fontSize: '12px' }}>
+                                  Testing...
+                                </span>
+                              )}
+                              {status === 'PENDING' && (
+                                <span style={{ color: '#6b7280', fontSize: '12px' }}>
+                                  Standby
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>
-
-                        {/* Assertions & Extractions Chips */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            {step.assertions.map((a, aidx) => (
-                              <span
-                                key={aidx}
-                                title={`${a.source} ${a.operator} ${a.targetValue}`}
-                                style={{
-                                  fontSize: '10px',
-                                  padding: '2px 6px',
-                                  borderRadius: '4px',
-                                  backgroundColor: '#1f2937',
-                                  color: '#9ca3af',
-                                  border: '1px solid #374151',
-                                }}
-                              >
-                                {a.source} {a.operator === 'EQUALS' ? '=' : '<'} {a.targetValue}
-                              </span>
-                            ))}
-                            {step.extractions.map((e, eidx) => (
-                              <span
-                                key={eidx}
-                                title={`Extracts into \${${e.variableName}}`}
-                                style={{
-                                  fontSize: '10px',
-                                  padding: '2px 6px',
-                                  borderRadius: '4px',
-                                  backgroundColor: '#3b0764',
-                                  color: '#c084fc',
-                                  border: '1px solid #581c87',
-                                }}
-                              >
-                                ↳ ${`{${e.variableName}}`}
-                              </span>
-                            ))}
-                          </div>
-
-                          {/* Verdict / Latency Badge */}
-                          <div style={{ minWidth: '80px', textAlign: 'right' }}>
-                            {status === 'PASSED' && (
-                              <span style={{ color: '#10b981', fontWeight: 'bold', fontSize: '12px' }}>
-                                PASSED <span style={{ fontSize: '10px', color: '#6b7280' }}>({res?.latency}ms)</span>
-                              </span>
-                            )}
-                            {status === 'FAILED' && (
-                              <span style={{ color: '#ef4444', fontWeight: 'bold', fontSize: '12px' }}>
-                                FAILED
-                              </span>
-                            )}
-                            {status === 'RUNNING' && (
-                              <span style={{ color: '#38bdf8', fontWeight: '600', fontSize: '12px' }}>
-                                Testing...
-                              </span>
-                            )}
-                            {status === 'PENDING' && (
-                              <span style={{ color: '#6b7280', fontSize: '12px' }}>
-                                Standby
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  )}
                 </div>
               </div>
 
@@ -589,7 +911,7 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({ auth
         </div>
       </div>
 
-      {/* New Suite Modal */}
+      {/* Modal 1: Create New Suite */}
       {isNewSuiteModalOpen && (
         <div
           style={{
@@ -598,11 +920,13 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({ auth
             left: 0,
             right: 0,
             bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.7)',
+            backgroundColor: 'rgba(0,0,0,0.75)',
+            backdropFilter: 'blur(4px)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 1000,
+            padding: '20px',
           }}
           onClick={() => setIsNewSuiteModalOpen(false)}
         >
@@ -610,48 +934,478 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({ auth
             style={{
               backgroundColor: '#111827',
               border: '1px solid #1f2937',
-              borderRadius: '8px',
-              width: '450px',
-              padding: '20px',
+              borderRadius: '10px',
+              width: '100%',
+              maxWidth: '520px',
+              padding: '24px',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '16px' }}>Create New Functional Suite</h3>
+            <h3 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '4px', color: '#f3f4f6' }}>
+              Create New Functional Suite
+            </h3>
+            <p style={{ fontSize: '12px', color: '#9ca3af', marginBottom: '18px' }}>
+              Link your test suite to an existing API Collection or build custom chained workflows.
+            </p>
+
             <form onSubmit={handleCreateSuite} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div>
-                <label style={{ fontSize: '12px', color: '#9ca3af', display: 'block', marginBottom: '4px' }}>Suite Name</label>
+                <label style={{ fontSize: '12px', color: '#9ca3af', display: 'block', marginBottom: '6px', fontWeight: '600' }}>
+                  Suite Name <span style={{ color: '#ef4444' }}>*</span>
+                </label>
                 <input
                   type="text"
                   value={newSuiteName}
                   onChange={(e) => setNewSuiteName(e.target.value)}
-                  placeholder="e.g. Order Lifecycle Integration"
+                  placeholder="e.g. End-to-End Checkout Flow"
                   required
-                  style={{ width: '100%', backgroundColor: '#0b0f19', border: '1px solid #374151', borderRadius: '4px', padding: '8px', color: '#f3f4f6' }}
+                  style={{ width: '100%', backgroundColor: '#0b0f19', border: '1px solid #374151', borderRadius: '6px', padding: '9px 12px', color: '#f3f4f6', fontSize: '13px' }}
                 />
               </div>
+
               <div>
-                <label style={{ fontSize: '12px', color: '#9ca3af', display: 'block', marginBottom: '4px' }}>Description</label>
+                <label style={{ fontSize: '12px', color: '#9ca3af', display: 'block', marginBottom: '6px', fontWeight: '600' }}>
+                  Source API Collection (Optional)
+                </label>
+                <select
+                  value={selectedCollectionId}
+                  onChange={(e) => setSelectedCollectionId(e.target.value)}
+                  style={{ width: '100%', backgroundColor: '#0b0f19', border: '1px solid #374151', borderRadius: '6px', padding: '9px 12px', color: '#f3f4f6', fontSize: '13px' }}
+                >
+                  <option value="">-- None / Custom (Start from scratch) --</option>
+                  {collections.map((col) => (
+                    <option key={col.id} value={col.id}>
+                      {col.name} ({col.requests.length} endpoints)
+                    </option>
+                  ))}
+                </select>
+                <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '4px' }}>
+                  Selecting a collection links base URLs and lets you quickly import its endpoints.
+                </div>
+              </div>
+
+              {selectedCollectionId && (
+                <div style={{ backgroundColor: '#1e1b4b33', border: '1px solid #4338ca', padding: '10px 12px', borderRadius: '6px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#c7d2fe', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={autoImportEndpoints}
+                      onChange={(e) => setAutoImportEndpoints(e.target.checked)}
+                      style={{ accentColor: '#6366f1' }}
+                    />
+                    Automatically import all endpoints from this collection as initial steps
+                  </label>
+                </div>
+              )}
+
+              <div>
+                <label style={{ fontSize: '12px', color: '#9ca3af', display: 'block', marginBottom: '6px', fontWeight: '600' }}>
+                  Description
+                </label>
                 <textarea
                   value={newSuiteDesc}
                   onChange={(e) => setNewSuiteDesc(e.target.value)}
-                  placeholder="Explain the user scenario or test boundary"
-                  rows={3}
-                  style={{ width: '100%', backgroundColor: '#0b0f19', border: '1px solid #374151', borderRadius: '4px', padding: '8px', color: '#f3f4f6' }}
+                  placeholder="Explain the business scenario or test boundary covered by this suite"
+                  rows={2}
+                  style={{ width: '100%', backgroundColor: '#0b0f19', border: '1px solid #374151', borderRadius: '6px', padding: '9px 12px', color: '#f3f4f6', fontSize: '12px' }}
                 />
               </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '10px' }}>
+
+              <div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#9ca3af', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={stopOnFailure}
+                    onChange={(e) => setStopOnFailure(e.target.checked)}
+                    style={{ accentColor: '#6366f1' }}
+                  />
+                  Stop suite execution immediately if any step fails (Stop on Failure)
+                </label>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
                 <button
                   type="button"
                   onClick={() => setIsNewSuiteModalOpen(false)}
-                  style={{ backgroundColor: '#1f2937', color: '#9ca3af', border: 'none', padding: '8px 14px', borderRadius: '4px', cursor: 'pointer' }}
+                  style={{ backgroundColor: '#1f2937', color: '#9ca3af', border: 'none', padding: '8px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  style={{ backgroundColor: '#6366f1', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}
+                  style={{ backgroundColor: '#6366f1', color: 'white', border: 'none', padding: '8px 18px', borderRadius: '6px', fontWeight: '600', cursor: 'pointer', fontSize: '13px' }}
                 >
                   Create Suite
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 2: Add Endpoint/Step to Pipeline */}
+      {isAddStepModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.75)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '20px',
+          }}
+          onClick={() => setIsAddStepModalOpen(false)}
+        >
+          <div
+            style={{
+              backgroundColor: '#111827',
+              border: '1px solid #1f2937',
+              borderRadius: '10px',
+              width: '100%',
+              maxWidth: '680px',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              padding: '24px',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '4px', color: '#f3f4f6' }}>
+              Add Endpoint Step to Pipeline
+            </h3>
+            <p style={{ fontSize: '12px', color: '#9ca3af', marginBottom: '16px' }}>
+              Select an endpoint from your API Collections or configure a custom step with assertions & variable chaining.
+            </p>
+
+            {/* Mode Switcher */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', borderBottom: '1px solid #1f2937', paddingBottom: '8px' }}>
+              <button
+                type="button"
+                onClick={() => setStepSourceMode('COLLECTION')}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '4px',
+                  border: 'none',
+                  backgroundColor: stepSourceMode === 'COLLECTION' ? '#6366f1' : '#1f2937',
+                  color: 'white',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <Layers size={14} /> Pick from API Collection
+              </button>
+              <button
+                type="button"
+                onClick={() => setStepSourceMode('CUSTOM')}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '4px',
+                  border: 'none',
+                  backgroundColor: stepSourceMode === 'CUSTOM' ? '#6366f1' : '#1f2937',
+                  color: 'white',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <Sliders size={14} /> Custom Endpoint
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveStepToSuite} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {stepSourceMode === 'COLLECTION' && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', backgroundColor: '#0b0f19', padding: '12px', borderRadius: '6px', border: '1px solid #1f2937' }}>
+                  <div>
+                    <label style={{ fontSize: '11px', color: '#9ca3af', display: 'block', marginBottom: '4px', fontWeight: '600' }}>
+                      1. Select Collection
+                    </label>
+                    <select
+                      value={chosenColId}
+                      onChange={(e) => {
+                        const newColId = e.target.value;
+                        setChosenColId(newColId);
+                        const c = collections.find((col) => col.id === newColId);
+                        if (c && c.requests.length > 0) {
+                          handleSelectRequestForStep(c.requests[0].id, newColId);
+                        }
+                      }}
+                      style={{ width: '100%', backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '4px', padding: '7px 10px', color: '#f3f4f6', fontSize: '12px' }}
+                    >
+                      {collections.map((col) => (
+                        <option key={col.id} value={col.id}>
+                          {col.name} ({col.requests.length} endpoints)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '11px', color: '#9ca3af', display: 'block', marginBottom: '4px', fontWeight: '600' }}>
+                      2. Select Endpoint / Request
+                    </label>
+                    {(() => {
+                      const curCol = collections.find((c) => c.id === chosenColId);
+                      const reqs = curCol?.requests || [];
+                      return reqs.length === 0 ? (
+                        <div style={{ fontSize: '11px', color: '#6b7280', padding: '8px 0' }}>No requests in this collection</div>
+                      ) : (
+                        <select
+                          value={chosenReqId}
+                          onChange={(e) => handleSelectRequestForStep(e.target.value, chosenColId)}
+                          style={{ width: '100%', backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '4px', padding: '7px 10px', color: '#f3f4f6', fontSize: '12px' }}
+                        >
+                          {reqs.map((r) => (
+                            <option key={r.id} value={r.id}>
+                              [{r.method}] {r.name}
+                            </option>
+                          ))}
+                        </select>
+                      );
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              {/* Step Name */}
+              <div>
+                <label style={{ fontSize: '12px', color: '#9ca3af', display: 'block', marginBottom: '4px', fontWeight: '600' }}>
+                  Step Name
+                </label>
+                <input
+                  type="text"
+                  value={stepName}
+                  onChange={(e) => setStepName(e.target.value)}
+                  placeholder="e.g. Authenticate Admin, Fetch Catalog"
+                  required
+                  style={{ width: '100%', backgroundColor: '#0b0f19', border: '1px solid #374151', borderRadius: '6px', padding: '8px 12px', color: '#f3f4f6', fontSize: '13px' }}
+                />
+              </div>
+
+              {/* Method and URL */}
+              <div>
+                <label style={{ fontSize: '12px', color: '#9ca3af', display: 'block', marginBottom: '4px', fontWeight: '600' }}>
+                  HTTP Method & URL <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <select
+                    value={stepMethod}
+                    onChange={(e) => setStepMethod(e.target.value as HTTPMethod)}
+                    style={{ backgroundColor: '#1f2937', color: '#f3f4f6', fontWeight: 'bold', border: '1px solid #374151', borderRadius: '6px', padding: '0 12px', fontSize: '12px' }}
+                  >
+                    <option>GET</option>
+                    <option>POST</option>
+                    <option>PUT</option>
+                    <option>DELETE</option>
+                    <option>PATCH</option>
+                  </select>
+                  <input
+                    type="text"
+                    value={stepUrl}
+                    onChange={(e) => setStepUrl(e.target.value)}
+                    placeholder="{{base_url}}/api/v1/orders or https://api.example.com/..."
+                    required
+                    style={{ flex: 1, backgroundColor: '#0b0f19', border: '1px solid #374151', borderRadius: '6px', padding: '8px 12px', color: '#f3f4f6', fontSize: '13px', fontFamily: 'monospace' }}
+                  />
+                </div>
+              </div>
+
+              {/* Body (if POST/PUT/PATCH) */}
+              {(stepMethod === 'POST' || stepMethod === 'PUT' || stepMethod === 'PATCH') && (
+                <div>
+                  <label style={{ fontSize: '12px', color: '#9ca3af', display: 'block', marginBottom: '4px', fontWeight: '600' }}>
+                    Request Body (JSON)
+                  </label>
+                  <textarea
+                    value={stepBody}
+                    onChange={(e) => setStepBody(e.target.value)}
+                    rows={4}
+                    placeholder="{\n  &quot;order_id&quot;: &quot;{{extracted_id}}&quot;\n}"
+                    style={{ width: '100%', backgroundColor: '#0b0f19', border: '1px solid #374151', borderRadius: '6px', padding: '8px 12px', color: '#a5f3fc', fontSize: '12px', fontFamily: 'monospace' }}
+                  />
+                </div>
+              )}
+
+              {/* Assertions Builder */}
+              <div style={{ backgroundColor: '#0b0f19', padding: '12px', borderRadius: '6px', border: '1px solid #1f2937' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#9ca3af' }}>
+                    ASSERTIONS (VERIFICATIONS)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setStepAssertions((prev) => [
+                        ...prev,
+                        { id: `a-${Date.now()}`, source: 'STATUS', operator: 'EQUALS', targetValue: '200' },
+                      ])
+                    }
+                    style={{ backgroundColor: '#1f2937', color: '#f3f4f6', border: '1px solid #374151', borderRadius: '4px', padding: '2px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}
+                  >
+                    <Plus size={11} /> Add Assertion
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {stepAssertions.map((a, idx) => (
+                    <div key={idx} style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <select
+                        value={a.source}
+                        onChange={(e) => {
+                          const copy = [...stepAssertions];
+                          copy[idx].source = e.target.value as AssertionSource;
+                          setStepAssertions(copy);
+                        }}
+                        style={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '4px', color: '#f3f4f6', fontSize: '11px', padding: '4px 6px' }}
+                      >
+                        <option value="STATUS">STATUS</option>
+                        <option value="RESPONSE_TIME">RESPONSE_TIME</option>
+                        <option value="JSON_PATH">JSON_PATH</option>
+                      </select>
+
+                      <select
+                        value={a.operator}
+                        onChange={(e) => {
+                          const copy = [...stepAssertions];
+                          copy[idx].operator = e.target.value as AssertionOperator;
+                          setStepAssertions(copy);
+                        }}
+                        style={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '4px', color: '#f3f4f6', fontSize: '11px', padding: '4px 6px' }}
+                      >
+                        <option value="EQUALS">EQUALS</option>
+                        <option value="LESS_THAN">LESS_THAN</option>
+                        <option value="EXISTS">EXISTS</option>
+                      </select>
+
+                      {a.source === 'JSON_PATH' && (
+                        <input
+                          type="text"
+                          value={a.propertyPath || ''}
+                          onChange={(e) => {
+                            const copy = [...stepAssertions];
+                            copy[idx].propertyPath = e.target.value;
+                            setStepAssertions(copy);
+                          }}
+                          placeholder="$.data.id or $.success"
+                          style={{ flex: 1, backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '4px', padding: '4px 8px', color: '#f3f4f6', fontSize: '11px', fontFamily: 'monospace' }}
+                        />
+                      )}
+
+                      <input
+                        type="text"
+                        value={a.targetValue}
+                        onChange={(e) => {
+                          const copy = [...stepAssertions];
+                          copy[idx].targetValue = e.target.value;
+                          setStepAssertions(copy);
+                        }}
+                        placeholder="Expected Value (e.g. 200, 500, true)"
+                        style={{ flex: 1, backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '4px', padding: '4px 8px', color: '#a5f3fc', fontSize: '11px' }}
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() => setStepAssertions((prev) => prev.filter((_, i) => i !== idx))}
+                        style={{ background: 'transparent', border: 'none', color: '#6b7280', cursor: 'pointer', padding: '4px' }}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Variable Extractions Builder */}
+              <div style={{ backgroundColor: '#0b0f19', padding: '12px', borderRadius: '6px', border: '1px solid #1f2937' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#9ca3af', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <Link2 size={13} color="#c084fc" /> VARIABLE EXTRACTIONS (FOR CHAINING)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setStepExtractions((prev) => [
+                        ...prev,
+                        { variableName: 'extracted_var', source: 'JSON_PATH', propertyPath: '$.token' },
+                      ])
+                    }
+                    style={{ backgroundColor: '#1f2937', color: '#f3f4f6', border: '1px solid #374151', borderRadius: '4px', padding: '2px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}
+                  >
+                    <Plus size={11} /> Add Extraction
+                  </button>
+                </div>
+
+                {stepExtractions.length === 0 ? (
+                  <div style={{ fontSize: '11px', color: '#6b7280' }}>
+                    No variables extracted. Use this to pull tokens or IDs to pass into subsequent steps.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {stepExtractions.map((e, idx) => (
+                      <div key={idx} style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                        <span style={{ fontSize: '11px', color: '#9ca3af' }}>Extract:</span>
+                        <input
+                          type="text"
+                          value={e.propertyPath}
+                          onChange={(ev) => {
+                            const copy = [...stepExtractions];
+                            copy[idx].propertyPath = ev.target.value;
+                            setStepExtractions(copy);
+                          }}
+                          placeholder="JSONPath e.g. $.token or $.data.id"
+                          style={{ flex: 1, backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '4px', padding: '4px 8px', color: '#f3f4f6', fontSize: '11px', fontFamily: 'monospace' }}
+                        />
+                        <span style={{ fontSize: '11px', color: '#9ca3af' }}>as</span>
+                        <input
+                          type="text"
+                          value={e.variableName}
+                          onChange={(ev) => {
+                            const copy = [...stepExtractions];
+                            copy[idx].variableName = ev.target.value;
+                            setStepExtractions(copy);
+                          }}
+                          placeholder="Variable Name e.g. auth_token"
+                          style={{ flex: 1, backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '4px', padding: '4px 8px', color: '#c084fc', fontSize: '11px', fontFamily: 'monospace' }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setStepExtractions((prev) => prev.filter((_, i) => i !== idx))}
+                          style={{ background: 'transparent', border: 'none', color: '#6b7280', cursor: 'pointer', padding: '4px' }}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsAddStepModalOpen(false)}
+                  style={{ backgroundColor: '#1f2937', color: '#9ca3af', border: 'none', padding: '8px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  style={{ backgroundColor: '#6366f1', color: 'white', border: 'none', padding: '8px 18px', borderRadius: '6px', fontWeight: '600', cursor: 'pointer', fontSize: '13px' }}
+                >
+                  Add Step to Pipeline
                 </button>
               </div>
             </form>

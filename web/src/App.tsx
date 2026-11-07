@@ -1358,7 +1358,11 @@ export default function App() {
           )}
 
           {activeTab === 'functional' && (
-            <FunctionalSuitesView authToken={authToken} activeProjectName={activeProject.name} />
+            <FunctionalSuitesView
+              authToken={authToken}
+              activeProjectName={activeProject.name}
+              collections={collections}
+            />
           )}
 
           {activeTab === 'reports' && (

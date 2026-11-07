@@ -17,8 +17,9 @@ export interface VariableExtraction {
 
 export interface TestCaseItem {
   id: string;
+  requestId?: string;
   name: string;
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS';
   url: string;
   body?: string;
   position: number;
@@ -29,6 +30,8 @@ export interface TestCaseItem {
 export interface TestSuiteItem {
   id: string;
   projectId: string;
+  collectionId?: string;
+  collectionName?: string;
   name: string;
   description: string;
   stopOnFailure: boolean;
