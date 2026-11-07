@@ -6,18 +6,19 @@ import {
   Zap,
   Activity,
   FileBarChart,
-  Settings,
   Send,
   Play,
   Square,
-  Server,
   ShieldCheck,
   ChevronRight,
+  ChevronDown,
   Folder,
-  FileCode,
   Plus,
+  Trash2,
   RefreshCw
 } from 'lucide-react';
+import { CollectionItem, RequestItem } from './types/collection';
+import { AddCollectionModal } from './components/AddCollectionModal';
 
 interface MetricPoint {
   time: string;
@@ -27,9 +28,91 @@ interface MetricPoint {
   errorRate: number;
 }
 
+const DEFAULT_COLLECTIONS: CollectionItem[] = [
+  {
+    id: 'col-storefront',
+    name: 'Storefront API',
+    description: 'Core e-commerce storefront endpoints',
+    baseUrl: 'http://localhost:8080',
+    createdAt: new Date().toISOString(),
+    requests: [
+      {
+        id: 'req-health',
+        name: 'Healthcheck',
+        method: 'GET',
+        url: 'http://localhost:8080/health',
+        bodyType: 'NONE',
+        body: '',
+        description: 'System health probe and telemetry endpoint',
+      },
+      {
+        id: 'req-auth',
+        name: 'Auth Login',
+        method: 'POST',
+        url: 'http://localhost:8080/api/v1/auth/login',
+        bodyType: 'JSON',
+        body: '{\n  "username": "admin",\n  "password": "admin"\n}',
+        description: 'Authentication token issuer',
+      },
+      {
+        id: 'req-projects',
+        name: 'Projects',
+        method: 'GET',
+        url: 'http://localhost:8080/api/v1/projects',
+        bodyType: 'NONE',
+        body: '',
+        description: 'List user projects and collections',
+      },
+    ],
+  },
+];
+
+const getMethodBadgeStyle = (method: string) => {
+  switch (method) {
+    case 'GET':
+      return { bg: '#064e3b', color: '#34d399' };
+    case 'POST':
+      return { bg: '#1e3a8a', color: '#60a5fa' };
+    case 'PUT':
+      return { bg: '#78350f', color: '#fbbf24' };
+    case 'DELETE':
+      return { bg: '#450a0a', color: '#f87171' };
+    case 'PATCH':
+      return { bg: '#3b0764', color: '#c084fc' };
+    default:
+      return { bg: '#1f2937', color: '#9ca3af' };
+  }
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'api' | 'functional' | 'performance' | 'executions' | 'reports'>('api');
   
+  // Collections State
+  const [collections, setCollections] = useState<CollectionItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('alpinex_collections');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error('Failed to load collections from localStorage', e);
+    }
+    return DEFAULT_COLLECTIONS;
+  });
+
+  const [expandedCollections, setExpandedCollections] = useState<Record<string, boolean>>({
+    'col-storefront': true,
+  });
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>('req-health');
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+
+  // Sync collections to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('alpinex_collections', JSON.stringify(collections));
+    } catch (e) {
+      console.error('Failed to persist collections to localStorage', e);
+    }
+  }, [collections]);
+
   // API Builder State
   const [method, setMethod] = useState('GET');
   const [url, setUrl] = useState('http://localhost:8080/health');
@@ -45,6 +128,44 @@ export default function App() {
   const [p95Threshold, setP95Threshold] = useState('500');
   const [isRunningPerf, setIsRunningPerf] = useState(false);
   const [metrics, setMetrics] = useState<MetricPoint[]>([]);
+
+  // Select request from collection tree
+  const handleSelectRequest = (req: RequestItem) => {
+    setSelectedRequestId(req.id);
+    setMethod(req.method);
+    setUrl(req.url);
+    if (req.body) {
+      setRequestBody(req.body);
+    }
+  };
+
+  // Toggle collection expand/collapse
+  const toggleExpand = (colId: string) => {
+    setExpandedCollections((prev) => ({
+      ...prev,
+      [colId]: !prev[colId],
+    }));
+  };
+
+  // Add new collection from modal
+  const handleAddCollection = (newCol: CollectionItem) => {
+    setCollections((prev) => [newCol, ...prev]);
+    setExpandedCollections((prev) => ({
+      ...prev,
+      [newCol.id]: true,
+    }));
+    if (newCol.requests.length > 0) {
+      handleSelectRequest(newCol.requests[0]);
+    }
+  };
+
+  // Delete a collection
+  const handleDeleteCollection = (e: React.MouseEvent, colId: string) => {
+    e.stopPropagation();
+    if (confirm('Are you sure you want to delete this collection?')) {
+      setCollections((prev) => prev.filter((c) => c.id !== colId));
+    }
+  };
 
   // Send Single API Request
   const handleSendRequest = async () => {
@@ -112,6 +233,13 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', backgroundColor: '#0b0f19', color: '#f3f4f6' }}>
+      {/* Add Collection Modal */}
+      <AddCollectionModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        onAddCollection={handleAddCollection}
+      />
+
       {/* Sidebar */}
       <aside style={{ width: '260px', backgroundColor: '#111827', borderRight: '1px solid #1f2937', display: 'flex', flexDirection: 'column' }}>
         {/* Brand Header */}
@@ -185,26 +313,199 @@ export default function App() {
           {activeTab === 'api' && (
             <div style={{ display: 'flex', height: '100%', gap: '20px' }}>
               {/* Collection Tree Pane */}
-              <div style={{ width: '240px', backgroundColor: '#111827', borderRadius: '8px', border: '1px solid #1f2937', padding: '16px' }}>
+              <div style={{ width: '280px', backgroundColor: '#111827', borderRadius: '8px', border: '1px solid #1f2937', padding: '16px', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#9ca3af' }}>COLLECTIONS</span>
-                  <Plus size={16} style={{ cursor: 'pointer', color: '#9ca3af' }} />
+                  <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#9ca3af', letterSpacing: '0.5px' }}>COLLECTIONS</span>
+                  <button
+                    onClick={() => setIsAddModalOpen(true)}
+                    title="Add Collection (Manual, Postman, Swagger)"
+                    style={{
+                      background: '#1f2937',
+                      border: '1px solid #374151',
+                      borderRadius: '4px',
+                      color: '#f3f4f6',
+                      cursor: 'pointer',
+                      padding: '4px 8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontSize: '11px',
+                      fontWeight: '600',
+                      transition: 'background 0.2s',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#374151';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = '#1f2937';
+                    }}
+                  >
+                    <Plus size={14} /> Add
+                  </button>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#f3f4f6', fontWeight: '500' }}>
-                    <Folder size={16} color="#6366f1" /> Storefront API
-                  </div>
-                  <div style={{ paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#10b981', padding: '4px 6px', backgroundColor: '#1e293b', borderRadius: '4px' }}>
-                      <span style={{ fontWeight: 'bold', fontSize: '10px' }}>GET</span> Healthcheck
+
+                {/* Collections List */}
+                <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {collections.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '32px 12px', color: '#6b7280' }}>
+                      <Folder size={32} style={{ margin: '0 auto 8px auto', opacity: 0.5 }} />
+                      <div style={{ fontSize: '12px', marginBottom: '12px' }}>No collections yet</div>
+                      <button
+                        onClick={() => setIsAddModalOpen(true)}
+                        style={{
+                          backgroundColor: '#6366f1',
+                          color: 'white',
+                          border: 'none',
+                          padding: '6px 12px',
+                          borderRadius: '4px',
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Create or Import
+                      </button>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#3b82f6', padding: '4px 6px' }}>
-                      <span style={{ fontWeight: 'bold', fontSize: '10px' }}>POST</span> Auth Login
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#10b981', padding: '4px 6px' }}>
-                      <span style={{ fontWeight: 'bold', fontSize: '10px' }}>GET</span> Products
-                    </div>
-                  </div>
+                  ) : (
+                    collections.map((col) => {
+                      const isExpanded = expandedCollections[col.id] ?? true;
+                      return (
+                        <div
+                          key={col.id}
+                          style={{
+                            backgroundColor: '#0b0f19',
+                            borderRadius: '6px',
+                            border: '1px solid #1f2937',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {/* Collection Header */}
+                          <div
+                            onClick={() => toggleExpand(col.id)}
+                            style={{
+                              padding: '10px 12px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              cursor: 'pointer',
+                              backgroundColor: '#161e2e',
+                              userSelect: 'none',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+                              {isExpanded ? <ChevronDown size={14} color="#9ca3af" /> : <ChevronRight size={14} color="#9ca3af" />}
+                              <Folder size={15} color="#818cf8" />
+                              <span
+                                style={{
+                                  fontSize: '13px',
+                                  fontWeight: '600',
+                                  color: '#f3f4f6',
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                }}
+                              >
+                                {col.name}
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span
+                                style={{
+                                  fontSize: '10px',
+                                  fontWeight: 'bold',
+                                  padding: '1px 5px',
+                                  borderRadius: '10px',
+                                  backgroundColor: '#1e293b',
+                                  color: '#9ca3af',
+                                }}
+                              >
+                                {col.requests.length}
+                              </span>
+                              <button
+                                onClick={(e) => handleDeleteCollection(e, col.id)}
+                                title="Delete collection"
+                                style={{
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: '#6b7280',
+                                  cursor: 'pointer',
+                                  padding: '2px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                                onMouseEnter={(e) => (e.currentTarget.style.color = '#ef4444')}
+                                onMouseLeave={(e) => (e.currentTarget.style.color = '#6b7280')}
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Requests List */}
+                          {isExpanded && (
+                            <div style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              {col.requests.length === 0 ? (
+                                <div style={{ fontSize: '11px', color: '#6b7280', padding: '6px 8px', fontStyle: 'italic' }}>
+                                  No requests inside
+                                </div>
+                              ) : (
+                                col.requests.map((req) => {
+                                  const isSelected = selectedRequestId === req.id;
+                                  const badge = getMethodBadgeStyle(req.method);
+                                  return (
+                                    <div
+                                      key={req.id}
+                                      onClick={() => handleSelectRequest(req)}
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        fontSize: '12px',
+                                        padding: '6px 8px',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer',
+                                        backgroundColor: isSelected ? '#1e293b' : 'transparent',
+                                        border: isSelected ? '1px solid #3b82f6' : '1px solid transparent',
+                                        transition: 'background-color 0.15s',
+                                      }}
+                                    >
+                                      <span
+                                        style={{
+                                          fontWeight: 'bold',
+                                          fontSize: '9px',
+                                          padding: '2px 4px',
+                                          borderRadius: '3px',
+                                          backgroundColor: badge.bg,
+                                          color: badge.color,
+                                          minWidth: '28px',
+                                          textAlign: 'center',
+                                        }}
+                                      >
+                                        {req.method}
+                                      </span>
+                                      <span
+                                        style={{
+                                          color: isSelected ? '#f3f4f6' : '#d1d5db',
+                                          fontWeight: isSelected ? '600' : '400',
+                                          whiteSpace: 'nowrap',
+                                          overflow: 'hidden',
+                                          textOverflow: 'ellipsis',
+                                          flex: 1,
+                                        }}
+                                      >
+                                        {req.name}
+                                      </span>
+                                    </div>
+                                  );
+                                })
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </div>
 
@@ -222,6 +523,8 @@ export default function App() {
                     <option>PUT</option>
                     <option>DELETE</option>
                     <option>PATCH</option>
+                    <option>HEAD</option>
+                    <option>OPTIONS</option>
                   </select>
                   <input
                     type="text"
