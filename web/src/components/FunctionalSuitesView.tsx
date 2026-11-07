@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Play,
   CheckCircle2,
@@ -15,7 +15,8 @@ import {
   Layers,
   Sliders,
   Sparkles,
-  Link2
+  Link2,
+  AlertCircle
 } from 'lucide-react';
 import { TestSuiteItem, TestCaseItem, Assertion, VariableExtraction, AssertionSource, AssertionOperator } from '../types/functional';
 import { CollectionItem, RequestItem, HTTPMethod } from '../types/collection';
@@ -134,6 +135,11 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
   const [isRunning, setIsRunning] = useState(false);
   const [stepResults, setStepResults] = useState<Record<string, { status: 'PENDING' | 'RUNNING' | 'PASSED' | 'FAILED'; latency?: number; details?: string }>>({});
   const [logs, setLogs] = useState<string[]>([]);
+  const logsBottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    logsBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [logs]);
 
   // Modal: New Test Suite
   const [isNewSuiteModalOpen, setIsNewSuiteModalOpen] = useState(false);
@@ -418,33 +424,36 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
         }
 
         if (stepPassed) {
-          addLog(`✔ [Step ${i + 1}] PASSED (${latency}ms) — All ${step.assertions.length} assertions verified`);
+          addLog(`✔ [Step ${i + 1}: ${step.name}] PASSED (${latency}ms) — All ${step.assertions.length} assertions verified`);
           setStepResults((prev) => ({
             ...prev,
             [step.id]: { status: 'PASSED', latency, details: `Passed in ${latency}ms` },
           }));
         } else {
-          addLog(`✖ [Step ${i + 1}] FAILED (${latency}ms): ${failedReasons.join(', ')}`);
+          addLog(`✖ [Step ${i + 1}: ${step.name}] FAILED (${latency}ms): ${failedReasons.join('; ')}`);
           setStepResults((prev) => ({
             ...prev,
-            [step.id]: { status: 'FAILED', latency, details: failedReasons.join(', ') },
+            [step.id]: { status: 'FAILED', latency, details: failedReasons.join('; ') },
           }));
           suiteFailed = true;
 
           if (activeSuite.stopOnFailure) {
-            addLog(`⛔ Suite execution aborted due to StopOnFailure policy.`);
+            addLog(`⛔ Suite execution aborted at Step ${i + 1} ("${step.name}") due to StopOnFailure policy.`);
             break;
           }
         }
       } catch (err: any) {
         const latency = Math.round(performance.now() - startTime);
-        addLog(`✖ [Step ${i + 1}] NETWORK ERROR (${latency}ms): ${err.message}`);
+        addLog(`✖ [Step ${i + 1}: ${step.name}] NETWORK ERROR (${latency}ms): ${err.message}`);
         setStepResults((prev) => ({
           ...prev,
           [step.id]: { status: 'FAILED', latency, details: err.message },
         }));
         suiteFailed = true;
-        if (activeSuite.stopOnFailure) break;
+        if (activeSuite.stopOnFailure) {
+          addLog(`⛔ Suite execution aborted at Step ${i + 1} ("${step.name}") due to StopOnFailure policy.`);
+          break;
+        }
       }
 
       await new Promise((r) => setTimeout(r, 350));
@@ -792,6 +801,12 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
                               <div style={{ fontSize: '11px', color: '#6b7280', fontFamily: 'monospace', marginTop: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                 {step.url}
                               </div>
+                              {status === 'FAILED' && res?.details && (
+                                <div style={{ fontSize: '11px', color: '#fca5a5', marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.25)', padding: '3px 8px', borderRadius: '4px', width: 'fit-content' }}>
+                                  <AlertCircle size={13} style={{ flexShrink: 0, color: '#ef4444' }} />
+                                  <span style={{ fontWeight: 500 }}>{res.details}</span>
+                                </div>
+                              )}
                             </div>
                           </div>
 
@@ -911,9 +926,29 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
               </div>
 
               {/* Execution Console Logs */}
-              <div style={{ backgroundColor: '#111827', borderRadius: '8px', border: '1px solid #1f2937', padding: '16px', display: 'flex', flexDirection: 'column', flex: 1, minHeight: '180px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', color: '#9ca3af', fontSize: '12px', fontWeight: 'bold' }}>
-                  <Terminal size={14} /> LIVE EXECUTION LOGS
+              <div style={{ backgroundColor: '#111827', borderRadius: '8px', border: '1px solid #1f2937', padding: '16px', display: 'flex', flexDirection: 'column', flex: 1, minHeight: '200px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#9ca3af', fontSize: '12px', fontWeight: 'bold' }}>
+                    <Terminal size={14} /> LIVE EXECUTION LOGS
+                  </div>
+                  {logs.length > 0 && (
+                    <button
+                      onClick={() => setLogs([])}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#6b7280',
+                        fontSize: '11px',
+                        cursor: 'pointer',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.color = '#ef4444')}
+                      onMouseLeave={(e) => (e.currentTarget.style.color = '#6b7280')}
+                    >
+                      Clear Logs
+                    </button>
+                  )}
                 </div>
                 <div
                   style={{
@@ -925,6 +960,7 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
                     color: '#a5f3fc',
                     flex: 1,
                     overflowY: 'auto',
+                    maxHeight: '260px',
                     lineHeight: '1.6',
                   }}
                 >
@@ -933,8 +969,53 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
                       Ready to execute. Click <strong>"Run Suite"</strong> above to launch the automated sequential test pipeline.
                     </div>
                   ) : (
-                    logs.map((log, index) => <div key={index}>{log}</div>)
+                    logs.map((log, index) => {
+                      const isError = log.includes('✖') || log.includes('FAILED') || log.includes('NETWORK ERROR') || log.includes('⛔') || log.includes('❌');
+                      const isSuccess = log.includes('✔') || log.includes('✅') || log.includes('ALL SUITE ASSERTIONS PASSED');
+                      const isInfo = log.includes('▶');
+                      const isExtract = log.includes('↳');
+                      const isSeparator = log.includes('────');
+
+                      let color = '#d1d5db';
+                      let bg = 'transparent';
+                      let fontWeight: 'normal' | 'bold' = 'normal';
+
+                      if (isError) {
+                        color = '#fca5a5';
+                        bg = 'rgba(239, 68, 68, 0.14)';
+                        fontWeight = 'bold';
+                      } else if (isSuccess) {
+                        color = '#6ee7b7';
+                        bg = 'rgba(16, 185, 129, 0.08)';
+                        fontWeight = 'bold';
+                      } else if (isInfo) {
+                        color = '#38bdf8';
+                        fontWeight = 'bold';
+                      } else if (isExtract) {
+                        color = '#c084fc';
+                      } else if (isSeparator) {
+                        color = '#4b5563';
+                      }
+
+                      return (
+                        <div
+                          key={index}
+                          style={{
+                            color,
+                            backgroundColor: bg,
+                            padding: isError || isSuccess ? '3px 8px' : '1px 4px',
+                            borderRadius: '4px',
+                            margin: '2px 0',
+                            fontWeight,
+                            borderLeft: isError ? '3px solid #ef4444' : isSuccess ? '3px solid #10b981' : isInfo ? '3px solid #0284c7' : 'none',
+                          }}
+                        >
+                          {log}
+                        </div>
+                      );
+                    })
                   )}
+                  <div ref={logsBottomRef} />
                 </div>
               </div>
             </>
