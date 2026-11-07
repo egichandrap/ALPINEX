@@ -17,11 +17,18 @@ import {
   Trash2,
   RefreshCw,
   LogOut,
-  User as UserIcon
+  User as UserIcon,
+  Edit2,
+  Save,
+  Sliders,
+  Check,
+  Sparkles,
+  FileText
 } from 'lucide-react';
-import { CollectionItem, RequestItem } from './types/collection';
+import { CollectionItem, RequestItem, HeaderItem, HTTPMethod } from './types/collection';
 import { UserProfile, ProjectItem } from './types/auth';
 import { AddCollectionModal } from './components/AddCollectionModal';
+import { RequestConfigModal } from './components/RequestConfigModal';
 import { LoginPage } from './components/LoginPage';
 import { ProjectSwitcher } from './components/ProjectSwitcher';
 
@@ -209,9 +216,19 @@ export default function App() {
   const [method, setMethod] = useState('GET');
   const [url, setUrl] = useState('http://localhost:8080/health');
   const [requestBody, setRequestBody] = useState('{\n  "name": "Test Payload"\n}');
+  const [activeHeaders, setActiveHeaders] = useState<HeaderItem[]>([
+    { key: 'Content-Type', value: 'application/json', enabled: true },
+  ]);
+  const [builderTab, setBuilderTab] = useState<'headers' | 'body'>('headers');
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [response, setResponse] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [env, setEnv] = useState('Development');
+
+  // Request Config Modal State
+  const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+  const [requestModalColId, setRequestModalColId] = useState<string | null>(null);
+  const [editingRequest, setEditingRequest] = useState<RequestItem | null>(null);
 
   // Performance Test State
   const [perfTestType, setPerfTestType] = useState('LOAD');
@@ -272,13 +289,151 @@ export default function App() {
     setActiveProject(newProj);
   };
 
+  // Find active request and its containing collection
+  const activeContext = React.useMemo(() => {
+    for (const col of collections) {
+      const found = col.requests.find((r) => r.id === selectedRequestId);
+      if (found) return { collection: col, request: found };
+    }
+    return null;
+  }, [collections, selectedRequestId]);
+
+  const targetModalCollection = collections.find((c) => c.id === requestModalColId) || collections[0] || {
+    id: 'col-default',
+    name: 'Collection',
+    requests: [],
+    createdAt: new Date().toISOString(),
+  };
+
+  // Open modal to add new request to collection
+  const handleOpenAddRequestModal = (colId: string) => {
+    setRequestModalColId(colId);
+    setEditingRequest(null);
+    setIsRequestModalOpen(true);
+  };
+
+  // Open modal to edit existing request
+  const handleOpenEditRequestModal = (colId: string, req: RequestItem) => {
+    setRequestModalColId(colId);
+    setEditingRequest(req);
+    setIsRequestModalOpen(true);
+  };
+
+  // Save request from modal (create or update)
+  const handleSaveRequestFromModal = (colId: string, savedReq: RequestItem) => {
+    setCollections((prev) =>
+      prev.map((col) => {
+        if (col.id === colId) {
+          const exists = col.requests.some((r) => r.id === savedReq.id);
+          const updatedRequests = exists
+            ? col.requests.map((r) => (r.id === savedReq.id ? savedReq : r))
+            : [...col.requests, savedReq];
+          return { ...col, requests: updatedRequests };
+        }
+        return col;
+      })
+    );
+    // Expand collection and select the request
+    setExpandedCollections((prev) => ({ ...prev, [colId]: true }));
+    handleSelectRequest(savedReq);
+  };
+
+  // Delete a request from a collection
+  const handleDeleteRequest = (colId: string, reqId: string) => {
+    if (!confirm('Are you sure you want to delete this endpoint?')) return;
+    setCollections((prev) =>
+      prev.map((col) => {
+        if (col.id === colId) {
+          return {
+            ...col,
+            requests: col.requests.filter((r) => r.id !== reqId),
+          };
+        }
+        return col;
+      })
+    );
+    if (selectedRequestId === reqId) {
+      setSelectedRequestId(null);
+    }
+  };
+
+  // Save modifications made directly in Request Builder
+  const handleSaveCurrentRequest = () => {
+    if (!selectedRequestId || !activeContext) return;
+    setCollections((prev) =>
+      prev.map((col) => {
+        if (col.id === activeContext.collection.id) {
+          return {
+            ...col,
+            requests: col.requests.map((r) => {
+              if (r.id === selectedRequestId) {
+                return {
+                  ...r,
+                  method: method as HTTPMethod,
+                  url,
+                  body: requestBody,
+                  headers: activeHeaders,
+                };
+              }
+              return r;
+            }),
+          };
+        }
+        return col;
+      })
+    );
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 2000);
+  };
+
+  // Builder Header helpers
+  const handleAddHeaderToBuilder = () => {
+    setActiveHeaders((prev) => [...prev, { key: '', value: '', enabled: true }]);
+  };
+
+  const handleUpdateHeaderInBuilder = (index: number, field: keyof HeaderItem, value: any) => {
+    setActiveHeaders((prev) => {
+      const copy = [...prev];
+      copy[index] = { ...copy[index], [field]: value };
+      return copy;
+    });
+  };
+
+  const handleRemoveHeaderFromBuilder = (index: number) => {
+    setActiveHeaders((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleApplyPresetInBuilder = (key: string, value: string) => {
+    setActiveHeaders((prev) => {
+      const existing = prev.findIndex((h) => h.key.toLowerCase() === key.toLowerCase());
+      if (existing >= 0) {
+        const copy = [...prev];
+        copy[existing] = { key, value, enabled: true };
+        return copy;
+      }
+      return [...prev, { key, value, enabled: true }];
+    });
+  };
+
+  const handleBeautifyJson = () => {
+    try {
+      const parsed = JSON.parse(requestBody);
+      setRequestBody(JSON.stringify(parsed, null, 2));
+    } catch {
+      // ignore invalid json
+    }
+  };
+
   // Select request from collection tree
   const handleSelectRequest = (req: RequestItem) => {
     setSelectedRequestId(req.id);
     setMethod(req.method);
     setUrl(req.url);
-    if (req.body) {
-      setRequestBody(req.body);
+    setRequestBody(req.body || '');
+    if (req.headers && req.headers.length > 0) {
+      setActiveHeaders(req.headers.map((h) => ({ ...h })));
+    } else {
+      setActiveHeaders([{ key: 'Content-Type', value: 'application/json', enabled: true }]);
     }
   };
 
@@ -315,17 +470,30 @@ export default function App() {
     setLoading(true);
     const start = performance.now();
     try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      if (authToken) {
+      let resolvedUrl = url.trim();
+      if (resolvedUrl.includes('{{base_url}}')) {
+        const base = activeContext?.collection.baseUrl || 'http://localhost:8080';
+        resolvedUrl = resolvedUrl.replace(/\{\{base_url\}\}/g, base.replace(/\/$/, ''));
+      }
+
+      const headers: Record<string, string> = {};
+      activeHeaders.forEach((h) => {
+        if (h.enabled && h.key.trim()) {
+          headers[h.key.trim()] = h.value;
+        }
+      });
+
+      if (!headers['Content-Type'] && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
+        headers['Content-Type'] = 'application/json';
+      }
+      if (authToken && !headers['Authorization']) {
         headers['Authorization'] = `Bearer ${authToken}`;
       }
 
-      const res = await fetch(url, {
+      const res = await fetch(resolvedUrl, {
         method,
         headers,
-        body: method !== 'GET' && method !== 'HEAD' ? requestBody : undefined,
+        body: method !== 'GET' && method !== 'HEAD' && requestBody.trim() ? requestBody : undefined,
       });
       const data = await res.json().catch(() => res.text());
       const durationMs = Math.round(performance.now() - start);
@@ -391,6 +559,16 @@ export default function App() {
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
         onAddCollection={handleAddCollection}
+      />
+
+      {/* Request Config Modal (Add / Edit) */}
+      <RequestConfigModal
+        isOpen={isRequestModalOpen}
+        onClose={() => setIsRequestModalOpen(false)}
+        collectionId={targetModalCollection.id}
+        collectionName={targetModalCollection.name}
+        initialRequest={editingRequest}
+        onSave={handleSaveRequestFromModal}
       />
 
       {/* Sidebar */}
@@ -635,6 +813,35 @@ export default function App() {
                                 {col.requests.length}
                               </span>
                               <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenAddRequestModal(col.id);
+                                }}
+                                title="Add endpoint to collection"
+                                style={{
+                                  background: '#1f2937',
+                                  border: '1px solid #374151',
+                                  color: '#f3f4f6',
+                                  cursor: 'pointer',
+                                  padding: '2px 5px',
+                                  borderRadius: '4px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: '11px',
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#374151';
+                                  e.currentTarget.style.color = '#818cf8';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#1f2937';
+                                  e.currentTarget.style.color = '#f3f4f6';
+                                }}
+                              >
+                                <Plus size={12} />
+                              </button>
+                              <button
                                 onClick={(e) => handleDeleteCollection(e, col.id)}
                                 title="Delete collection"
                                 style={{
@@ -709,6 +916,50 @@ export default function App() {
                                       >
                                         {req.name}
                                       </span>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenEditRequestModal(col.id, req);
+                                          }}
+                                          title="Configure / Edit endpoint"
+                                          style={{
+                                            background: 'transparent',
+                                            border: 'none',
+                                            color: '#6b7280',
+                                            cursor: 'pointer',
+                                            padding: '2px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            borderRadius: '3px',
+                                          }}
+                                          onMouseEnter={(e) => (e.currentTarget.style.color = '#818cf8')}
+                                          onMouseLeave={(e) => (e.currentTarget.style.color = '#6b7280')}
+                                        >
+                                          <Edit2 size={12} />
+                                        </button>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDeleteRequest(col.id, req.id);
+                                          }}
+                                          title="Delete endpoint"
+                                          style={{
+                                            background: 'transparent',
+                                            border: 'none',
+                                            color: '#6b7280',
+                                            cursor: 'pointer',
+                                            padding: '2px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            borderRadius: '3px',
+                                          }}
+                                          onMouseEnter={(e) => (e.currentTarget.style.color = '#ef4444')}
+                                          onMouseLeave={(e) => (e.currentTarget.style.color = '#6b7280')}
+                                        >
+                                          <Trash2 size={12} />
+                                        </button>
+                                      </div>
                                     </div>
                                   );
                                 })
@@ -724,6 +975,80 @@ export default function App() {
 
               {/* Request Builder & Response Pane */}
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {/* Active Request Info Bar */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#111827', padding: '10px 16px', borderRadius: '8px', border: '1px solid #1f2937' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+                    {activeContext?.collection && (
+                      <span style={{ fontSize: '11px', color: '#9ca3af', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Folder size={12} color="#818cf8" /> {activeContext.collection.name} <ChevronRight size={12} />
+                      </span>
+                    )}
+                    <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#f3f4f6', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {activeContext?.request.name || 'Ad-hoc Request'}
+                    </span>
+                    {activeContext?.request.description && (
+                      <span style={{ fontSize: '11px', color: '#6b7280', fontStyle: 'italic', maxWidth: '280px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        — {activeContext.request.description}
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {activeContext && (
+                      <button
+                        onClick={() => handleOpenEditRequestModal(activeContext.collection.id, activeContext.request)}
+                        title="Configure endpoint settings (headers, body, params)"
+                        style={{
+                          backgroundColor: '#1f2937',
+                          color: '#d1d5db',
+                          border: '1px solid #374151',
+                          borderRadius: '4px',
+                          padding: '5px 10px',
+                          fontSize: '11px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          cursor: 'pointer',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#374151';
+                          e.currentTarget.style.color = '#818cf8';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = '#1f2937';
+                          e.currentTarget.style.color = '#d1d5db';
+                        }}
+                      >
+                        <Sliders size={13} />
+                        Configure Endpoint
+                      </button>
+                    )}
+                    {activeContext && (
+                      <button
+                        onClick={handleSaveCurrentRequest}
+                        title="Save changes to collection"
+                        style={{
+                          backgroundColor: saveSuccess ? '#065f46' : '#1f2937',
+                          color: saveSuccess ? '#34d399' : '#f3f4f6',
+                          border: `1px solid ${saveSuccess ? '#059669' : '#374151'}`,
+                          borderRadius: '4px',
+                          padding: '5px 12px',
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                        }}
+                      >
+                        {saveSuccess ? <Check size={13} /> : <Save size={13} />}
+                        {saveSuccess ? 'Saved!' : 'Save'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
                 {/* URL Bar */}
                 <div style={{ display: 'flex', gap: '8px', backgroundColor: '#111827', padding: '12px', borderRadius: '8px', border: '1px solid #1f2937' }}>
                   <select
@@ -756,18 +1081,135 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* Request Body Editor */}
-                {method !== 'GET' && method !== 'HEAD' && (
-                  <div style={{ backgroundColor: '#111827', padding: '16px', borderRadius: '8px', border: '1px solid #1f2937' }}>
-                    <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#9ca3af', marginBottom: '8px' }}>REQUEST BODY (JSON)</div>
-                    <textarea
-                      value={requestBody}
-                      onChange={(e) => setRequestBody(e.target.value)}
-                      rows={5}
-                      style={{ width: '100%', backgroundColor: '#0b0f19', border: '1px solid #374151', borderRadius: '4px', padding: '10px', color: '#a5f3fc', fontFamily: 'monospace', fontSize: '13px' }}
-                    />
+                {/* Request Tabs (Headers | Body) */}
+                <div style={{ backgroundColor: '#111827', borderRadius: '8px', border: '1px solid #1f2937', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'flex', gap: '12px', borderBottom: '1px solid #1f2937', paddingBottom: '8px', alignItems: 'center' }}>
+                    <button
+                      onClick={() => setBuilderTab('headers')}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        borderBottom: builderTab === 'headers' ? '2px solid #6366f1' : '2px solid transparent',
+                        color: builderTab === 'headers' ? '#f3f4f6' : '#9ca3af',
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        padding: '4px 8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      <Sliders size={13} />
+                      Headers ({activeHeaders.filter((h) => h.enabled && h.key).length})
+                    </button>
+                    <button
+                      onClick={() => setBuilderTab('body')}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        borderBottom: builderTab === 'body' ? '2px solid #6366f1' : '2px solid transparent',
+                        color: builderTab === 'body' ? '#f3f4f6' : '#9ca3af',
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        padding: '4px 8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      <FileText size={13} />
+                      Body (JSON/Raw)
+                    </button>
+
+                    <div style={{ marginLeft: 'auto', display: 'flex', gap: '6px' }}>
+                      {builderTab === 'headers' ? (
+                        <>
+                          <button
+                            onClick={() => handleApplyPresetInBuilder('Content-Type', 'application/json')}
+                            style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', backgroundColor: '#1f2937', color: '#d1d5db', border: '1px solid #374151', cursor: 'pointer' }}
+                          >
+                            + JSON
+                          </button>
+                          <button
+                            onClick={() => handleApplyPresetInBuilder('Authorization', 'Bearer {{auth_token}}')}
+                            style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', backgroundColor: '#1f2937', color: '#d1d5db', border: '1px solid #374151', cursor: 'pointer' }}
+                          >
+                            + Bearer
+                          </button>
+                          <button
+                            onClick={handleAddHeaderToBuilder}
+                            style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', backgroundColor: '#374151', color: '#f3f4f6', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}
+                          >
+                            <Plus size={11} /> Add Header
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={handleBeautifyJson}
+                          style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', backgroundColor: '#1f2937', color: '#a5f3fc', border: '1px solid #374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        >
+                          <Sparkles size={11} /> Format JSON
+                        </button>
+                      )}
+                    </div>
                   </div>
-                )}
+
+                  {builderTab === 'headers' ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '160px', overflowY: 'auto' }}>
+                      {activeHeaders.length === 0 ? (
+                        <div style={{ fontSize: '11px', color: '#6b7280', padding: '8px 0', textAlign: 'center' }}>
+                          No headers configured. Click "+ Add Header" to include headers in this request.
+                        </div>
+                      ) : (
+                        activeHeaders.map((h, idx) => (
+                          <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <input
+                              type="checkbox"
+                              checked={h.enabled}
+                              onChange={(e) => handleUpdateHeaderInBuilder(idx, 'enabled', e.target.checked)}
+                              style={{ cursor: 'pointer', accentColor: '#6366f1' }}
+                            />
+                            <input
+                              type="text"
+                              value={h.key}
+                              onChange={(e) => handleUpdateHeaderInBuilder(idx, 'key', e.target.value)}
+                              placeholder="Header Name"
+                              style={{ flex: 1, backgroundColor: '#0b0f19', border: '1px solid #374151', borderRadius: '4px', padding: '5px 8px', color: '#f3f4f6', fontSize: '12px', fontFamily: 'monospace' }}
+                            />
+                            <input
+                              type="text"
+                              value={h.value}
+                              onChange={(e) => handleUpdateHeaderInBuilder(idx, 'value', e.target.value)}
+                              placeholder="Value"
+                              style={{ flex: 1.5, backgroundColor: '#0b0f19', border: '1px solid #374151', borderRadius: '4px', padding: '5px 8px', color: '#a5f3fc', fontSize: '12px', fontFamily: 'monospace' }}
+                            />
+                            <button
+                              onClick={() => handleRemoveHeaderFromBuilder(idx)}
+                              title="Delete header"
+                              style={{ background: 'transparent', border: 'none', color: '#6b7280', cursor: 'pointer', padding: '4px' }}
+                              onMouseEnter={(e) => (e.currentTarget.style.color = '#ef4444')}
+                              onMouseLeave={(e) => (e.currentTarget.style.color = '#6b7280')}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <textarea
+                        value={requestBody}
+                        onChange={(e) => setRequestBody(e.target.value)}
+                        rows={5}
+                        placeholder="{\n  &quot;key&quot;: &quot;value&quot;\n}"
+                        style={{ width: '100%', backgroundColor: '#0b0f19', border: '1px solid #374151', borderRadius: '4px', padding: '10px', color: '#a5f3fc', fontFamily: 'monospace', fontSize: '12px' }}
+                      />
+                    </div>
+                  )}
+                </div>
 
                 {/* Response Viewer */}
                 <div style={{ flex: 1, backgroundColor: '#111827', borderRadius: '8px', border: '1px solid #1f2937', padding: '16px', display: 'flex', flexDirection: 'column' }}>
