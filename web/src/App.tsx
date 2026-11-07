@@ -15,10 +15,15 @@ import {
   Folder,
   Plus,
   Trash2,
-  RefreshCw
+  RefreshCw,
+  LogOut,
+  User as UserIcon
 } from 'lucide-react';
 import { CollectionItem, RequestItem } from './types/collection';
+import { UserProfile, ProjectItem } from './types/auth';
 import { AddCollectionModal } from './components/AddCollectionModal';
+import { LoginPage } from './components/LoginPage';
+import { ProjectSwitcher } from './components/ProjectSwitcher';
 
 interface MetricPoint {
   time: string;
@@ -27,6 +32,15 @@ interface MetricPoint {
   p95: number;
   errorRate: number;
 }
+
+const DEFAULT_PROJECTS: ProjectItem[] = [
+  {
+    id: 'proj-sample',
+    workspaceId: 'ws-default',
+    name: 'E-Commerce Demo',
+    description: 'Core storefront and e-commerce endpoints',
+  },
+];
 
 const DEFAULT_COLLECTIONS: CollectionItem[] = [
   {
@@ -51,14 +65,14 @@ const DEFAULT_COLLECTIONS: CollectionItem[] = [
         method: 'POST',
         url: 'http://localhost:8080/api/v1/auth/login',
         bodyType: 'JSON',
-        body: '{\n  "username": "admin",\n  "password": "admin"\n}',
+        body: '{\n  "email": "admin",\n  "password": "admin"\n}',
         description: 'Authentication token issuer',
       },
       {
         id: 'req-projects',
         name: 'Projects',
         method: 'GET',
-        url: 'http://localhost:8080/api/v1/projects',
+        url: 'http://localhost:8080/api/v1/workspaces/ws-default/projects',
         bodyType: 'NONE',
         body: '',
         description: 'List user projects and collections',
@@ -84,7 +98,47 @@ const getMethodBadgeStyle = (method: string) => {
   }
 };
 
+const getApiUrl = () => {
+  if (typeof window !== 'undefined' && window.location.port === '5173') {
+    return 'http://localhost:8080';
+  }
+  return '';
+};
+
 export default function App() {
+  // Authentication State
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
+    try {
+      const saved = localStorage.getItem('alpinex_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [authToken, setAuthToken] = useState<string | null>(() => {
+    return localStorage.getItem('alpinex_auth_token');
+  });
+
+  // Projects State
+  const [projects, setProjects] = useState<ProjectItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('alpinex_projects');
+      return saved ? JSON.parse(saved) : DEFAULT_PROJECTS;
+    } catch {
+      return DEFAULT_PROJECTS;
+    }
+  });
+
+  const [activeProject, setActiveProject] = useState<ProjectItem>(() => {
+    try {
+      const saved = localStorage.getItem('alpinex_active_project');
+      return saved ? JSON.parse(saved) : DEFAULT_PROJECTS[0];
+    } catch {
+      return DEFAULT_PROJECTS[0];
+    }
+  });
+
   const [activeTab, setActiveTab] = useState<'dashboard' | 'api' | 'functional' | 'performance' | 'executions' | 'reports'>('api');
   
   // Collections State
@@ -104,6 +158,16 @@ export default function App() {
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>('req-health');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
+  // Sync projects to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('alpinex_projects', JSON.stringify(projects));
+      localStorage.setItem('alpinex_active_project', JSON.stringify(activeProject));
+    } catch (e) {
+      console.error('Failed to persist projects to localStorage', e);
+    }
+  }, [projects, activeProject]);
+
   // Sync collections to localStorage
   useEffect(() => {
     try {
@@ -112,6 +176,34 @@ export default function App() {
       console.error('Failed to persist collections to localStorage', e);
     }
   }, [collections]);
+
+  // Fetch dynamic projects from API if logged in
+  useEffect(() => {
+    if (!authToken) return;
+    const fetchProjects = async () => {
+      try {
+        const res = await fetch(`${getApiUrl()}/api/v1/workspaces/ws-default/projects`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+        const json = await res.json();
+        if (json?.success && Array.isArray(json.data) && json.data.length > 0) {
+          const mapped: ProjectItem[] = json.data.map((p: any) => ({
+            id: p.ID || p.id,
+            workspaceId: p.WorkspaceID || p.workspace_id,
+            name: p.Name || p.name,
+            description: p.Description || p.description || '',
+          }));
+          setProjects(mapped);
+          if (!mapped.some((p) => p.id === activeProject.id)) {
+            setActiveProject(mapped[0]);
+          }
+        }
+      } catch (err) {
+        console.warn('Using cached projects', err);
+      }
+    };
+    fetchProjects();
+  }, [authToken]);
 
   // API Builder State
   const [method, setMethod] = useState('GET');
@@ -128,6 +220,57 @@ export default function App() {
   const [p95Threshold, setP95Threshold] = useState('500');
   const [isRunningPerf, setIsRunningPerf] = useState(false);
   const [metrics, setMetrics] = useState<MetricPoint[]>([]);
+
+  // Auth Handlers
+  const handleLoginSuccess = (user: UserProfile, token: string) => {
+    setCurrentUser(user);
+    setAuthToken(token);
+    localStorage.setItem('alpinex_user', JSON.stringify(user));
+    localStorage.setItem('alpinex_auth_token', token);
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setAuthToken(null);
+    localStorage.removeItem('alpinex_user');
+    localStorage.removeItem('alpinex_auth_token');
+  };
+
+  // Create Project Handler
+  const handleCreateProject = async (name: string, description: string) => {
+    const newProj: ProjectItem = {
+      id: `proj-${Math.random().toString(36).substring(2, 9)}`,
+      workspaceId: 'ws-default',
+      name,
+      description,
+    };
+
+    if (authToken) {
+      try {
+        const res = await fetch(`${getApiUrl()}/api/v1/projects`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({
+            workspace_id: 'ws-default',
+            name,
+            description,
+          }),
+        });
+        const json = await res.json();
+        if (json?.success && json.data?.ID) {
+          newProj.id = json.data.ID;
+        }
+      } catch (err) {
+        console.warn('Backend project creation fallback to local', err);
+      }
+    }
+
+    setProjects((prev) => [...prev, newProj]);
+    setActiveProject(newProj);
+  };
 
   // Select request from collection tree
   const handleSelectRequest = (req: RequestItem) => {
@@ -172,11 +315,16 @@ export default function App() {
     setLoading(true);
     const start = performance.now();
     try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+      }
+
       const res = await fetch(url, {
         method,
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: method !== 'GET' && method !== 'HEAD' ? requestBody : undefined,
       });
       const data = await res.json().catch(() => res.text());
@@ -231,6 +379,11 @@ export default function App() {
     errorRate: 0,
   };
 
+  // Auth Gate: Render Login Page if user is not authenticated
+  if (!currentUser || !authToken) {
+    return <LoginPage onLoginSuccess={handleLoginSuccess} />;
+  }
+
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', backgroundColor: '#0b0f19', color: '#f3f4f6' }}>
       {/* Add Collection Modal */}
@@ -253,11 +406,13 @@ export default function App() {
           </div>
         </div>
 
-        {/* Project Context */}
-        <div style={{ padding: '12px 16px', backgroundColor: '#161e2e', margin: '12px', borderRadius: '6px', border: '1px solid #1f2937' }}>
-          <div style={{ fontSize: '10px', textTransform: 'uppercase', color: '#9ca3af', fontWeight: 'bold' }}>Active Project</div>
-          <div style={{ fontSize: '13px', fontWeight: '600', marginTop: '2px', color: '#e5e7eb' }}>E-Commerce Storefront</div>
-        </div>
+        {/* Dynamic Project Switcher */}
+        <ProjectSwitcher
+          activeProject={activeProject}
+          projects={projects}
+          onSelectProject={setActiveProject}
+          onCreateProject={handleCreateProject}
+        />
 
         {/* Navigation Items */}
         <nav style={{ flex: 1, padding: '0 12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -297,13 +452,71 @@ export default function App() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '4px 10px', backgroundColor: '#1e293b', borderRadius: '12px', color: '#38bdf8' }}>
               <ShieldCheck size={14} />
               <span>SSRF Protected</span>
             </div>
-            <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: '#374151', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 'bold' }}>
-              PA
+
+            {/* Authenticated User Profile */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderLeft: '1px solid #1f2937', paddingLeft: '14px' }}>
+              <div
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '50%',
+                  backgroundColor: '#6366f1',
+                  color: 'white',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '12px',
+                  fontWeight: 'bold',
+                }}
+              >
+                {currentUser.full_name
+                  .split(' ')
+                  .map((w) => w[0])
+                  .join('')
+                  .substring(0, 2)
+                  .toUpperCase() || 'AD'}
+              </div>
+              <div>
+                <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#f3f4f6' }}>
+                  {currentUser.full_name}
+                </div>
+                <div style={{ fontSize: '10px', color: '#9ca3af' }}>
+                  {currentUser.email}
+                </div>
+              </div>
+
+              {/* Logout Button */}
+              <button
+                onClick={handleLogout}
+                title="Log Out"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#9ca3af',
+                  cursor: 'pointer',
+                  padding: '6px',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginLeft: '4px',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = '#ef4444';
+                  e.currentTarget.style.backgroundColor = '#1f2937';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = '#9ca3af';
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }}
+              >
+                <LogOut size={16} />
+              </button>
             </div>
           </div>
         </header>
