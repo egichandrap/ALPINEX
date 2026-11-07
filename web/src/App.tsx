@@ -151,15 +151,28 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'api' | 'functional' | 'performance' | 'executions' | 'reports'>('api');
   
-  // Collections State
-  const [collections, setCollections] = useState<CollectionItem[]>(() => {
+  const getProjectCollectionsKey = (projId: string) => `alpinex_collections_${projId}`;
+
+  const loadCollectionsForProject = (projId: string): CollectionItem[] => {
     try {
-      const saved = localStorage.getItem('alpinex_collections');
-      if (saved) return JSON.parse(saved);
+      const specific = localStorage.getItem(getProjectCollectionsKey(projId));
+      if (specific) return JSON.parse(specific);
+
+      // Legacy fallback for default project so existing collections aren't lost
+      if (projId === 'proj-sample') {
+        const legacy = localStorage.getItem('alpinex_collections');
+        if (legacy) return JSON.parse(legacy);
+        return DEFAULT_COLLECTIONS;
+      }
     } catch (e) {
-      console.error('Failed to load collections from localStorage', e);
+      console.error('Failed to load collections for project', projId, e);
     }
-    return DEFAULT_COLLECTIONS;
+    return [];
+  };
+
+  // Collections State (Scoped to activeProject)
+  const [collections, setCollections] = useState<CollectionItem[]>(() => {
+    return loadCollectionsForProject(activeProject.id);
   });
 
   const [expandedCollections, setExpandedCollections] = useState<Record<string, boolean>>({
@@ -178,14 +191,28 @@ export default function App() {
     }
   }, [projects, activeProject]);
 
-  // Sync collections to localStorage
+  // When activeProject changes, reload collections for that project
+  useEffect(() => {
+    const loaded = loadCollectionsForProject(activeProject.id);
+    setCollections(loaded);
+    if (loaded.length > 0 && loaded[0].requests.length > 0) {
+      handleSelectRequest(loaded[0].requests[0]);
+    } else {
+      setSelectedRequestId(null);
+    }
+  }, [activeProject.id]);
+
+  // Sync collections to localStorage scoped to current activeProject
   useEffect(() => {
     try {
-      localStorage.setItem('alpinex_collections', JSON.stringify(collections));
+      localStorage.setItem(getProjectCollectionsKey(activeProject.id), JSON.stringify(collections));
+      if (activeProject.id === 'proj-sample') {
+        localStorage.setItem('alpinex_collections', JSON.stringify(collections));
+      }
     } catch (e) {
       console.error('Failed to persist collections to localStorage', e);
     }
-  }, [collections]);
+  }, [collections, activeProject.id]);
 
   // Fetch dynamic projects from API if logged in
   useEffect(() => {
@@ -1113,7 +1140,7 @@ export default function App() {
           {activeTab === 'functional' && (
             <FunctionalSuitesView
               authToken={authToken}
-              activeProjectName={activeProject.name}
+              activeProject={activeProject}
               collections={collections}
             />
           )}

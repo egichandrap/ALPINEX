@@ -19,10 +19,11 @@ import {
 } from 'lucide-react';
 import { TestSuiteItem, TestCaseItem, Assertion, VariableExtraction, AssertionSource, AssertionOperator } from '../types/functional';
 import { CollectionItem, RequestItem, HTTPMethod } from '../types/collection';
+import { ProjectItem } from '../types/auth';
 
 interface FunctionalSuitesViewProps {
   authToken: string | null;
-  activeProjectName?: string;
+  activeProject: ProjectItem;
   collections: CollectionItem[];
 }
 
@@ -83,17 +84,51 @@ const DEFAULT_SUITES: TestSuiteItem[] = [
 
 export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
   authToken,
-  activeProjectName,
+  activeProject,
   collections = [],
 }) => {
-  const [suites, setSuites] = useState<TestSuiteItem[]>(() => {
+  const getSuitesKey = (projId: string) => `alpinex_functional_suites_${projId}`;
+
+  const loadSuitesForProject = (projId: string): TestSuiteItem[] => {
     try {
-      const saved = localStorage.getItem('alpinex_functional_suites');
-      return saved ? JSON.parse(saved) : DEFAULT_SUITES;
-    } catch {
-      return DEFAULT_SUITES;
+      const specific = localStorage.getItem(getSuitesKey(projId));
+      if (specific) return JSON.parse(specific);
+
+      if (projId === 'proj-sample') {
+        const legacy = localStorage.getItem('alpinex_functional_suites');
+        if (legacy) return JSON.parse(legacy);
+        return DEFAULT_SUITES;
+      }
+    } catch (e) {
+      console.error('Failed to load suites for project', projId, e);
     }
-  });
+    return [];
+  };
+
+  const [suites, setSuites] = useState<TestSuiteItem[]>(() => loadSuitesForProject(activeProject?.id || 'proj-sample'));
+
+  // Reload suites whenever activeProject.id changes
+  useEffect(() => {
+    if (!activeProject?.id) return;
+    const projSuites = loadSuitesForProject(activeProject.id);
+    setSuites(projSuites);
+    setSelectedSuiteId(projSuites[0]?.id || '');
+    setStepResults({});
+    setLogs([]);
+  }, [activeProject?.id]);
+
+  // Persist suites whenever suites change
+  useEffect(() => {
+    if (!activeProject?.id) return;
+    try {
+      localStorage.setItem(getSuitesKey(activeProject.id), JSON.stringify(suites));
+      if (activeProject.id === 'proj-sample') {
+        localStorage.setItem('alpinex_functional_suites', JSON.stringify(suites));
+      }
+    } catch (e) {
+      console.error('Failed to save functional suites to localStorage', e);
+    }
+  }, [suites, activeProject?.id]);
 
   const [selectedSuiteId, setSelectedSuiteId] = useState<string>(suites[0]?.id || '');
   const [isRunning, setIsRunning] = useState(false);
@@ -456,7 +491,7 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
 
     const newSuite: TestSuiteItem = {
       id: `suite-${Math.random().toString(36).substring(2, 9)}`,
-      projectId: 'proj-sample',
+      projectId: activeProject?.id || 'proj-sample',
       collectionId: selectedCollectionId || undefined,
       collectionName: boundColName,
       name: newSuiteName.trim(),
