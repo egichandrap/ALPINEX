@@ -91,6 +91,9 @@ alpinex restart
 
 # Perform health check
 alpinex health
+
+# Update ALPINEX to latest release
+alpinex update
 ```
 
 ---

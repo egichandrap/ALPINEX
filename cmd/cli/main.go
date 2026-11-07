@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 	"time"
@@ -35,6 +36,8 @@ func main() {
 	case "version":
 		fmt.Printf("ALPINEX CLI v1.0.2 (%s/%s)\n", runtime.GOOS, runtime.GOARCH)
 		os.Exit(ExitSuccess)
+	case "update", "upgrade":
+		runUpdateCmd()
 	default:
 		fmt.Printf("Unknown command: %s\n\n", command)
 		printUsage()
@@ -47,6 +50,7 @@ func printUsage() {
 	fmt.Println("\nCommands:")
 	fmt.Println("  health                 Check status of the ALPINEX API server")
 	fmt.Println("  test, run              Execute an API functional or performance test")
+	fmt.Println("  update                 Update ALPINEX to the latest release")
 	fmt.Println("  version                Show CLI version")
 	fmt.Println("\nExamples:")
 	fmt.Println("  alpinex health --url http://localhost:8080")
@@ -125,4 +129,17 @@ func runTestCmd(args []string) {
 		fmt.Printf("❌ Execution failed with status %d: %s\n", resp.StatusCode, string(respBytes))
 		os.Exit(ExitTestFailed)
 	}
+}
+
+func runUpdateCmd() {
+	fmt.Println("🚀 Updating ALPINEX to the latest release...")
+	cmd := exec.Command("sh", "-c", "curl -fsSL https://raw.githubusercontent.com/egichandrap/ALPINEX/main/scripts/install.sh | bash")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("❌ Update failed: %v\n", err)
+		os.Exit(ExitInfraError)
+	}
+	os.Exit(ExitSuccess)
 }

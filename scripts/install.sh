@@ -331,6 +331,10 @@ case "\$1" in
     shift
     cd "\$COMPOSE_DIR" && ${DOCKER_COMPOSE_CMD} logs -f "\$@"
     ;;
+  update|upgrade)
+    echo "Updating ALPINEX to latest release..."
+    curl -fsSL https://raw.githubusercontent.com/egichandrap/ALPINEX/main/scripts/install.sh | bash -s -- -y
+    ;;
   down)
     cd "\$COMPOSE_DIR" && ${DOCKER_COMPOSE_CMD} down
     ;;
@@ -340,7 +344,7 @@ case "\$1" in
     ;;
   *)
     echo "ALPINEX Management Utility"
-    echo "Usage: alpinex {start|stop|restart|status|logs|health|down}"
+    echo "Usage: alpinex {start|stop|restart|status|logs|health|update|down}"
     ;;
 esac
 EOF
@@ -357,9 +361,10 @@ echo -e "  ℹ️  ${BOLD}Credentials:${RESET}    Configurable anytime in ${INST
 echo -e "============================================================"
 echo ""
 echo -e "${BOLD}Management Commands:${RESET}"
-echo -e "  Check status:   ${CYAN}alpinex status${RESET}"
-echo -e "  View live logs: ${CYAN}alpinex logs${RESET}"
-echo -e "  Stop platform:  ${CYAN}alpinex stop${RESET}"
-echo -e "  Start platform: ${CYAN}alpinex start${RESET}"
-echo -e "  Uninstall:      ${CYAN}cd ${INSTALL_DIR} && ${DOCKER_COMPOSE_CMD} down -v${RESET}"
+echo -e "  Check status:    ${CYAN}alpinex status${RESET}"
+echo -e "  View live logs:  ${CYAN}alpinex logs${RESET}"
+echo -e "  Update platform: ${CYAN}alpinex update${RESET}"
+echo -e "  Stop platform:   ${CYAN}alpinex stop${RESET}"
+echo -e "  Start platform:  ${CYAN}alpinex start${RESET}"
+echo -e "  Uninstall:       ${CYAN}cd ${INSTALL_DIR} && ${DOCKER_COMPOSE_CMD} down -v${RESET}"
 echo ""
