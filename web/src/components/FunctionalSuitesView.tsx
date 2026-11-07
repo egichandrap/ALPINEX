@@ -16,7 +16,8 @@ import {
   Sliders,
   Sparkles,
   Link2,
-  AlertCircle
+  AlertCircle,
+  Edit3
 } from 'lucide-react';
 import { TestSuiteItem, TestCaseItem, Assertion, VariableExtraction, AssertionSource, AssertionOperator } from '../types/functional';
 import { CollectionItem, RequestItem, HTTPMethod } from '../types/collection';
@@ -82,6 +83,22 @@ const DEFAULT_SUITES: TestSuiteItem[] = [
     ],
   },
 ];
+
+// Safely extract nested properties via JSONPath / dot notation / array indexing (e.g. "$.data.token", "items[0].id")
+export const getNestedValue = (obj: any, path: string): any => {
+  if (!obj || !path) return undefined;
+  const cleaned = path.replace(/^\$\.?/, '').trim();
+  if (!cleaned) return obj;
+
+  const parts = cleaned.replace(/\[(\d+)\]/g, '.$1').split('.').filter(Boolean);
+
+  let current = obj;
+  for (const part of parts) {
+    if (current === null || current === undefined) return undefined;
+    current = current[part];
+  }
+  return current;
+};
 
 export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
   authToken,
@@ -151,6 +168,7 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
 
   // Modal: Add Endpoint/Step to Pipeline
   const [isAddStepModalOpen, setIsAddStepModalOpen] = useState(false);
+  const [editingStepId, setEditingStepId] = useState<string | null>(null);
   const [stepSourceMode, setStepSourceMode] = useState<'COLLECTION' | 'CUSTOM'>('COLLECTION');
   const [chosenColId, setChosenColId] = useState<string>('');
   const [chosenReqId, setChosenReqId] = useState<string>('');
@@ -177,6 +195,7 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
 
   // Open Add Step Modal
   const handleOpenAddStepModal = () => {
+    setEditingStepId(null);
     const defaultColId = activeSuite?.collectionId || collections[0]?.id || '';
     setChosenColId(defaultColId);
     setStepSourceMode('COLLECTION');
@@ -206,6 +225,20 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
     setIsAddStepModalOpen(true);
   };
 
+  // Open Edit Step Modal
+  const handleOpenEditStepModal = (step: TestCaseItem) => {
+    setEditingStepId(step.id);
+    setStepSourceMode('CUSTOM');
+    setChosenReqId(step.requestId || '');
+    setStepName(step.name);
+    setStepMethod(step.method);
+    setStepUrl(step.url);
+    setStepBody(step.body || '');
+    setStepAssertions(step.assertions ? JSON.parse(JSON.stringify(step.assertions)) : []);
+    setStepExtractions(step.extractions ? JSON.parse(JSON.stringify(step.extractions)) : []);
+    setIsAddStepModalOpen(true);
+  };
+
   // Handle request selection in Add Step Modal
   const handleSelectRequestForStep = (reqId: string, colId: string) => {
     setChosenReqId(reqId);
@@ -227,36 +260,63 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
     }
   };
 
-  // Add Step to Active Suite
+  // Save Step (Create or Update) to Active Suite
   const handleSaveStepToSuite = (e: React.FormEvent) => {
     e.preventDefault();
     if (!stepUrl.trim() || !activeSuite) return;
 
-    const newStep: TestCaseItem = {
-      id: `step-${Date.now()}`,
-      requestId: chosenReqId || undefined,
-      name: stepName.trim() || `${stepMethod} ${stepUrl}`,
-      method: stepMethod,
-      url: stepUrl.trim(),
-      body: stepBody.trim() ? stepBody : undefined,
-      position: activeSuite.cases.length + 1,
-      assertions: stepAssertions,
-      extractions: stepExtractions,
-    };
+    if (editingStepId) {
+      setSuites((prev) =>
+        prev.map((s) => {
+          if (s.id === activeSuite.id) {
+            return {
+              ...s,
+              cases: s.cases.map((c) =>
+                c.id === editingStepId
+                  ? {
+                      ...c,
+                      name: stepName.trim() || `${stepMethod} ${stepUrl}`,
+                      method: stepMethod,
+                      url: stepUrl.trim(),
+                      body: stepBody.trim() ? stepBody : undefined,
+                      assertions: stepAssertions,
+                      extractions: stepExtractions,
+                    }
+                  : c
+              ),
+            };
+          }
+          return s;
+        })
+      );
+    } else {
+      const newStep: TestCaseItem = {
+        id: `step-${Date.now()}`,
+        requestId: chosenReqId || undefined,
+        name: stepName.trim() || `${stepMethod} ${stepUrl}`,
+        method: stepMethod,
+        url: stepUrl.trim(),
+        body: stepBody.trim() ? stepBody : undefined,
+        position: activeSuite.cases.length + 1,
+        assertions: stepAssertions,
+        extractions: stepExtractions,
+      };
 
-    setSuites((prev) =>
-      prev.map((s) => {
-        if (s.id === activeSuite.id) {
-          return {
-            ...s,
-            cases: [...s.cases, newStep],
-          };
-        }
-        return s;
-      })
-    );
+      setSuites((prev) =>
+        prev.map((s) => {
+          if (s.id === activeSuite.id) {
+            return {
+              ...s,
+              cases: [...s.cases, newStep],
+            };
+          }
+          return s;
+        })
+      );
+    }
 
     setIsAddStepModalOpen(false);
+    setEditingStepId(null);
   };
 
   // Re-order step position
@@ -358,9 +418,13 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
           'Content-Type': 'application/json',
         };
 
-        // If an auth_token was extracted previously, automatically inject it!
+        // If an auth_token, token, or accessToken was extracted previously, automatically inject it!
         if (extractedContext['auth_token']) {
           headers['Authorization'] = `Bearer ${extractedContext['auth_token']}`;
+        } else if (extractedContext['token']) {
+          headers['Authorization'] = `Bearer ${extractedContext['token']}`;
+        } else if (extractedContext['accessToken']) {
+          headers['Authorization'] = `Bearer ${extractedContext['accessToken']}`;
         } else if (authToken && step.id !== 'step-auth-1') {
           headers['Authorization'] = `Bearer ${authToken}`;
         }
@@ -399,8 +463,7 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
               failedReasons.push(`Response time ${latency}ms exceeded threshold ${maxMs}ms`);
             }
           } else if (assertion.source === 'JSON_PATH' && data) {
-            const prop = (assertion.propertyPath || '').replace(/^\$\.?/, '');
-            const val = prop ? data[prop] : data;
+            const val = getNestedValue(data, assertion.propertyPath || '');
             if (assertion.operator === 'EXISTS' && (val === undefined || val === null)) {
               stepPassed = false;
               failedReasons.push(`Path "${assertion.propertyPath}" does not exist in response`);
@@ -414,11 +477,12 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
         // Perform Extractions into context
         if (data && step.extractions) {
           for (const ext of step.extractions) {
-            const prop = ext.propertyPath.replace(/^\$\.?/, '');
-            const extractedVal = prop ? data[prop] : data;
+            const extractedVal = getNestedValue(data, ext.propertyPath);
             if (extractedVal !== undefined) {
               extractedContext[ext.variableName] = extractedVal;
-              addLog(`  ↳ Extracted variable: \${${ext.variableName}} = "${String(extractedVal).substring(0, 25)}"`);
+              addLog(`  ↳ Extracted variable: \${${ext.variableName}} = "${String(extractedVal).substring(0, 30)}"`);
+            } else {
+              addLog(`  ⚠ Warning: Unable to extract \${${ext.variableName}} (Path "${ext.propertyPath}" not found in response)`);
             }
           }
         }
@@ -878,6 +942,21 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
                                 <ArrowDown size={14} />
                               </button>
                               <button
+                                onClick={() => handleOpenEditStepModal(step)}
+                                title="Edit Step & Variable Extractions"
+                                style={{
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: '#9ca3af',
+                                  cursor: 'pointer',
+                                  padding: '4px',
+                                }}
+                                onMouseEnter={(e) => (e.currentTarget.style.color = '#818cf8')}
+                                onMouseLeave={(e) => (e.currentTarget.style.color = '#9ca3af')}
+                              >
+                                <Edit3 size={14} />
+                              </button>
+                              <button
                                 onClick={() => handleDeleteStep(step.id)}
                                 title="Delete step"
                                 style={{
@@ -1194,10 +1273,12 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
             onClick={(e) => e.stopPropagation()}
           >
             <h3 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '4px', color: '#f3f4f6' }}>
-              Add Endpoint Step to Pipeline
+              {editingStepId ? 'Edit Step & Chaining Variables' : 'Add Endpoint Step to Pipeline'}
             </h3>
             <p style={{ fontSize: '12px', color: '#9ca3af', marginBottom: '16px' }}>
-              Select an endpoint from your API Collections or configure a custom step with assertions & variable chaining.
+              {editingStepId
+                ? 'Modify assertions, request payload, or extract variables to pass to next steps.'
+                : 'Select an endpoint from your API Collections or configure a custom step with assertions & variable chaining.'}
             </p>
 
             {/* Mode Switcher */}
@@ -1521,7 +1602,7 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
                   type="submit"
                   style={{ backgroundColor: '#6366f1', color: 'white', border: 'none', padding: '8px 18px', borderRadius: '6px', fontWeight: '600', cursor: 'pointer', fontSize: '13px' }}
                 >
-                  Add Step to Pipeline
+                  {editingStepId ? 'Update Step' : 'Add Step to Pipeline'}
                 </button>
               </div>
             </form>
