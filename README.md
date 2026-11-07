@@ -91,9 +91,36 @@ alpinex restart
 
 # Perform health check
 alpinex health
+```
 
-# Uninstall and wipe data
-cd ~/.alpinex && docker compose down -v
+---
+
+## 🗑️ Uninstallation
+
+If you wish to completely uninstall ALPINEX and remove all persistent containers, database volumes, configuration files, and the CLI binary:
+
+### 1-Line Clean Uninstall
+```bash
+[ -d "$HOME/.alpinex" ] && (cd "$HOME/.alpinex" && docker compose down -v) && rm -rf "$HOME/.alpinex" && rm -f /usr/local/bin/alpinex "$HOME/.local/bin/alpinex"
+```
+
+### Step-by-Step Breakdown:
+1. **Stop containers and purge data volumes** (PostgreSQL & Redis):
+   ```bash
+   cd ~/.alpinex && docker compose down -v
+   ```
+2. **Remove configuration directory & generated secrets**:
+   ```bash
+   rm -rf ~/.alpinex
+   ```
+3. **Remove the global `alpinex` CLI binary / wrapper**:
+   ```bash
+   rm -f /usr/local/bin/alpinex ~/.local/bin/alpinex
+   ```
+4. *(Optional)* **Purge local Docker images**:
+   ```bash
+   docker rmi alpinex/api:latest alpinex/worker:latest alpinex/web:latest 2>/dev/null || true
+   ```
 ```
 
 ---
