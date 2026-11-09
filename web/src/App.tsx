@@ -47,6 +47,7 @@ import { TutorialTour } from './components/TutorialTour';
 import { EnvironmentModal } from './components/EnvironmentModal';
 import { ToastContainer, ToastMessage } from './components/Toast';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
+import { OverviewAnalytics } from './components/OverviewAnalytics';
 
 interface MetricPoint {
   time: string;
@@ -754,7 +755,7 @@ export default function App() {
               ALPINE<span className="x">X</span>
             </div>
             <div style={{ fontSize: '10px', color: '#9ca3af', marginTop: '2px', fontWeight: '500' }}>
-              v1.1.1 • API & Load Platform
+              v1.1.2 • API & Load Platform
             </div>
           </div>
         </div>
@@ -1550,7 +1551,15 @@ export default function App() {
 
             return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                <h2 style={{ fontSize: '20px', fontWeight: 'bold' }}>Platform Overview</h2>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <h2 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0 }}>Platform Overview</h2>
+                    <p style={{ fontSize: '13px', color: '#9ca3af', margin: '4px 0 0 0' }}>
+                      Operational metrics, workload throughput distributions, and latency dispersion for active project.
+                    </p>
+                  </div>
+                </div>
+
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
                   <MetricCard title="ACTIVE COLLECTIONS" value={collections.length} unit="Collections" color="#6366f1" />
                   <MetricCard title="API ENDPOINTS" value={totalEndpoints} unit="Endpoints" color="#38bdf8" />
@@ -1562,6 +1571,9 @@ export default function App() {
                     color="#10b981"
                   />
                 </div>
+
+                {/* Interactive Telemetry Analytics: Diagram Batang & Candlestick Charts */}
+                <OverviewAnalytics projectName={activeProject.name} />
               </div>
             );
           })()}
