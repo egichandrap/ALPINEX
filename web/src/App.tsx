@@ -35,6 +35,8 @@ import { CollectionTree } from './components/CollectionTree';
 import { FunctionalSuitesView } from './components/FunctionalSuitesView';
 import { ReportsView } from './components/ReportsView';
 import { PerformanceTestView } from './components/PerformanceTestView';
+import { ExecutionCenterView } from './components/ExecutionCenterView';
+import { TutorialTour } from './components/TutorialTour';
 
 interface MetricPoint {
   time: string;
@@ -46,51 +48,14 @@ interface MetricPoint {
 
 const DEFAULT_PROJECTS: ProjectItem[] = [
   {
-    id: 'proj-sample',
+    id: 'proj-default',
     workspaceId: 'ws-default',
-    name: 'E-Commerce Demo',
-    description: 'Core storefront and e-commerce endpoints',
+    name: 'Default Project',
+    description: 'Primary workspace project',
   },
 ];
 
-const DEFAULT_COLLECTIONS: CollectionItem[] = [
-  {
-    id: 'col-storefront',
-    name: 'Storefront API',
-    description: 'Core e-commerce storefront endpoints',
-    baseUrl: 'http://localhost:8080',
-    createdAt: new Date().toISOString(),
-    requests: [
-      {
-        id: 'req-health',
-        name: 'Healthcheck',
-        method: 'GET',
-        url: 'http://localhost:8080/health',
-        bodyType: 'NONE',
-        body: '',
-        description: 'System health probe and telemetry endpoint',
-      },
-      {
-        id: 'req-auth',
-        name: 'Auth Login',
-        method: 'POST',
-        url: 'http://localhost:8080/api/v1/auth/login',
-        bodyType: 'JSON',
-        body: '{\n  "email": "admin",\n  "password": "admin"\n}',
-        description: 'Authentication token issuer',
-      },
-      {
-        id: 'req-projects',
-        name: 'Projects',
-        method: 'GET',
-        url: 'http://localhost:8080/api/v1/workspaces/ws-default/projects',
-        bodyType: 'NONE',
-        body: '',
-        description: 'List user projects and collections',
-      },
-    ],
-  },
-];
+const DEFAULT_COLLECTIONS: CollectionItem[] = [];
 
 const getMethodBadgeStyle = (method: string) => {
   switch (method) {
@@ -158,13 +123,6 @@ export default function App() {
     try {
       const specific = localStorage.getItem(getProjectCollectionsKey(projId));
       if (specific) return JSON.parse(specific);
-
-      // Legacy fallback for default project so existing collections aren't lost
-      if (projId === 'proj-sample') {
-        const legacy = localStorage.getItem('alpinex_collections');
-        if (legacy) return JSON.parse(legacy);
-        return DEFAULT_COLLECTIONS;
-      }
     } catch (e) {
       console.error('Failed to load collections for project', projId, e);
     }
@@ -176,11 +134,10 @@ export default function App() {
     return loadCollectionsForProject(activeProject.id);
   });
 
-  const [expandedCollections, setExpandedCollections] = useState<Record<string, boolean>>({
-    'col-storefront': true,
-  });
-  const [selectedRequestId, setSelectedRequestId] = useState<string | null>('req-health');
+  const [expandedCollections, setExpandedCollections] = useState<Record<string, boolean>>({});
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isTutorialOpen, setIsTutorialOpen] = useState(false);
 
   // Sync projects to localStorage
   useEffect(() => {
@@ -207,13 +164,20 @@ export default function App() {
   useEffect(() => {
     try {
       localStorage.setItem(getProjectCollectionsKey(activeProject.id), JSON.stringify(collections));
-      if (activeProject.id === 'proj-sample') {
-        localStorage.setItem('alpinex_collections', JSON.stringify(collections));
-      }
     } catch (e) {
       console.error('Failed to persist collections to localStorage', e);
     }
   }, [collections, activeProject.id]);
+
+  // Auto-launch tutorial on initial login if not completed yet
+  useEffect(() => {
+    if (currentUser && authToken) {
+      const isCompleted = localStorage.getItem('alpinex_tutorial_completed');
+      if (!isCompleted) {
+        setIsTutorialOpen(true);
+      }
+    }
+  }, [currentUser, authToken]);
 
   // Fetch dynamic projects from API if logged in
   useEffect(() => {
@@ -245,8 +209,8 @@ export default function App() {
 
   // API Builder State
   const [method, setMethod] = useState('GET');
-  const [url, setUrl] = useState('http://localhost:8080/health');
-  const [requestBody, setRequestBody] = useState('{\n  "name": "Test Payload"\n}');
+  const [url, setUrl] = useState('');
+  const [requestBody, setRequestBody] = useState('');
   const [activeHeaders, setActiveHeaders] = useState<HeaderItem[]>([
     { key: 'Content-Type', value: 'application/json', enabled: true },
   ]);
@@ -267,6 +231,10 @@ export default function App() {
     setAuthToken(token);
     localStorage.setItem('alpinex_user', JSON.stringify(user));
     localStorage.setItem('alpinex_auth_token', token);
+    const isCompleted = localStorage.getItem('alpinex_tutorial_completed');
+    if (!isCompleted) {
+      setIsTutorialOpen(true);
+    }
   };
 
   const handleLogout = () => {
@@ -331,6 +299,9 @@ export default function App() {
     try {
       localStorage.removeItem(getProjectCollectionsKey(projectId));
       localStorage.removeItem(`alpinex_functional_suites_${projectId}`);
+      localStorage.removeItem(`alpinex_perf_scenarios_${projectId}`);
+      localStorage.removeItem(`alpinex_perf_reports_${projectId}`);
+      localStorage.removeItem(`alpinex_executions_${projectId}`);
     } catch (e) {
       console.error('Failed to clean up project data from localStorage', e);
     }
@@ -608,7 +579,7 @@ export default function App() {
           </div>
           <div>
             <h1 style={{ fontSize: '16px', fontWeight: 'bold', letterSpacing: '0.5px' }}>ALPINEX</h1>
-            <span style={{ fontSize: '11px', color: '#9ca3af' }}>v1.0.5 • Community</span>
+            <span style={{ fontSize: '11px', color: '#9ca3af' }}>v1.0.6 • Community</span>
           </div>
         </div>
 
@@ -664,6 +635,29 @@ export default function App() {
               <ShieldCheck size={14} />
               <span>SSRF Protected</span>
             </div>
+
+            {/* Tutorial Tour Trigger Button */}
+            <button
+              onClick={() => setIsTutorialOpen(true)}
+              style={{
+                backgroundColor: '#1e1b4b',
+                border: '1px solid #4338ca',
+                color: '#c7d2fe',
+                borderRadius: '6px',
+                padding: '5px 12px',
+                fontSize: '12px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                transition: 'all 0.2s',
+              }}
+              title="Buka Mode Panduan & Tutorial Interaktif"
+            >
+              <Sparkles size={14} color="#a5b4fc" />
+              <span>Tutorial Mode</span>
+            </button>
 
             {/* Authenticated User Profile */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderLeft: '1px solid #1f2937', paddingLeft: '14px' }}>
@@ -1037,54 +1031,59 @@ export default function App() {
             <ReportsView activeProject={activeProject} />
           )}
 
-          {activeTab === 'dashboard' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <h2 style={{ fontSize: '20px', fontWeight: 'bold' }}>Platform Overview</h2>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
-                <MetricCard title="TOTAL TEST RUNS" value="128" unit="Completed" color="#6366f1" />
-                <MetricCard title="SLA PASS RATE" value="98.4%" unit="Last 30 Days" color="#10b981" />
-                <MetricCard title="ACTIVE WORKERS" value="3 Nodes" unit="Healthy" color="#38bdf8" />
+          {activeTab === 'dashboard' && (() => {
+            const totalEndpoints = collections.reduce((acc, c) => acc + c.requests.length, 0);
+            const suitesKey = `alpinex_functional_suites_${activeProject.id}`;
+            const suitesCount = (() => {
+              try {
+                const raw = localStorage.getItem(suitesKey);
+                return raw ? JSON.parse(raw).length : 0;
+              } catch {
+                return 0;
+              }
+            })();
+            const reportsKey = `alpinex_perf_reports_${activeProject.id}`;
+            const perfReports = (() => {
+              try {
+                const raw = localStorage.getItem(reportsKey);
+                return raw ? JSON.parse(raw) : [];
+              } catch {
+                return [];
+              }
+            })();
+            const passedReports = perfReports.filter((r: any) => r.verdict === 'PASSED').length;
+            const slaPassRate = perfReports.length > 0 ? `${Math.round((passedReports / perfReports.length) * 100)}%` : '—';
+
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <h2 style={{ fontSize: '20px', fontWeight: 'bold' }}>Platform Overview</h2>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+                  <MetricCard title="ACTIVE COLLECTIONS" value={collections.length} unit="Collections" color="#6366f1" />
+                  <MetricCard title="API ENDPOINTS" value={totalEndpoints} unit="Endpoints" color="#38bdf8" />
+                  <MetricCard title="FUNCTIONAL SUITES" value={suitesCount} unit="Suites" color="#a855f7" />
+                  <MetricCard
+                    title="SLA PASS RATE"
+                    value={slaPassRate}
+                    unit={perfReports.length > 0 ? `${perfReports.length} test runs` : 'No runs yet'}
+                    color="#10b981"
+                  />
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {activeTab === 'executions' && (
-            <div>
-              <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px' }}>Execution History & Queue</h2>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid #1f2937', color: '#9ca3af' }}>
-                    <th style={{ padding: '10px' }}>Execution ID</th>
-                    <th>Type</th>
-                    <th>Engine</th>
-                    <th>Status</th>
-                    <th>Duration</th>
-                    <th>Verdict</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr style={{ borderBottom: '1px solid #1f2937' }}>
-                    <td style={{ padding: '12px 10px', fontFamily: 'monospace', color: '#6366f1' }}>exec-8a3f91</td>
-                    <td>PERFORMANCE</td>
-                    <td>k6</td>
-                    <td><span style={{ backgroundColor: '#064e3b', color: '#34d399', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }}>COMPLETED</span></td>
-                    <td>1m 00s</td>
-                    <td><span style={{ color: '#10b981', fontWeight: 'bold' }}>PASSED</span></td>
-                  </tr>
-                  <tr style={{ borderBottom: '1px solid #1f2937' }}>
-                    <td style={{ padding: '12px 10px', fontFamily: 'monospace', color: '#6366f1' }}>exec-102bc4</td>
-                    <td>FUNCTIONAL</td>
-                    <td>NATIVE_HTTP</td>
-                    <td><span style={{ backgroundColor: '#064e3b', color: '#34d399', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }}>COMPLETED</span></td>
-                    <td>240 ms</td>
-                    <td><span style={{ color: '#10b981', fontWeight: 'bold' }}>PASSED</span></td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+            <ExecutionCenterView activeProject={activeProject} onNavigateTab={(tab) => setActiveTab(tab)} />
           )}
         </div>
       </main>
+
+      {/* Interactive Onboarding Tutorial Tour */}
+      <TutorialTour
+        isOpen={isTutorialOpen}
+        onClose={() => setIsTutorialOpen(false)}
+        onNavigateTab={(tab) => setActiveTab(tab)}
+      />
     </div>
   );
 }

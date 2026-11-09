@@ -29,61 +29,6 @@ interface FunctionalSuitesViewProps {
   collections: CollectionItem[];
 }
 
-const DEFAULT_SUITES: TestSuiteItem[] = [
-  {
-    id: 'suite-e2e-checkout',
-    projectId: 'proj-sample',
-    collectionId: 'col-storefront',
-    collectionName: 'Storefront API',
-    name: 'E-Commerce End-to-End Checkout Flow',
-    description: 'Sequentially tests login, catalog lookup, cart item addition, and order placement with chained token',
-    stopOnFailure: true,
-    createdAt: new Date().toISOString(),
-    cases: [
-      {
-        id: 'step-1',
-        name: 'Step 1: Admin Authentication',
-        method: 'POST',
-        url: 'http://localhost:8080/api/v1/auth/login',
-        body: '{\n  "email": "admin",\n  "password": "admin"\n}',
-        position: 1,
-        assertions: [
-          { id: 'a1', source: 'STATUS', operator: 'EQUALS', targetValue: '200' },
-          { id: 'a2', source: 'RESPONSE_TIME', operator: 'LESS_THAN', targetValue: '500' },
-          { id: 'a3', source: 'JSON_PATH', operator: 'EXISTS', targetValue: 'true', propertyPath: '$.token' },
-        ],
-        extractions: [
-          { variableName: 'auth_token', source: 'JSON_PATH', propertyPath: '$.token' },
-        ],
-      },
-      {
-        id: 'step-2',
-        name: 'Step 2: Fetch Workspace Projects',
-        method: 'GET',
-        url: 'http://localhost:8080/api/v1/workspaces/ws-default/projects',
-        position: 2,
-        assertions: [
-          { id: 'a4', source: 'STATUS', operator: 'EQUALS', targetValue: '200' },
-          { id: 'a5', source: 'JSON_PATH', operator: 'EQUALS', targetValue: 'true', propertyPath: '$.success' },
-        ],
-        extractions: [],
-      },
-      {
-        id: 'step-3',
-        name: 'Step 3: Service Health & Telemetry Check',
-        method: 'GET',
-        url: 'http://localhost:8080/health',
-        position: 3,
-        assertions: [
-          { id: 'a6', source: 'STATUS', operator: 'EQUALS', targetValue: '200' },
-          { id: 'a7', source: 'RESPONSE_TIME', operator: 'LESS_THAN', targetValue: '200' },
-        ],
-        extractions: [],
-      },
-    ],
-  },
-];
-
 // Safely extract nested properties via JSONPath / dot notation / array indexing (e.g. "$.data.token", "items[0].id")
 export const getNestedValue = (obj: any, path: string): any => {
   if (!obj || !path) return undefined;
@@ -111,19 +56,13 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
     try {
       const specific = localStorage.getItem(getSuitesKey(projId));
       if (specific) return JSON.parse(specific);
-
-      if (projId === 'proj-sample') {
-        const legacy = localStorage.getItem('alpinex_functional_suites');
-        if (legacy) return JSON.parse(legacy);
-        return DEFAULT_SUITES;
-      }
     } catch (e) {
       console.error('Failed to load suites for project', projId, e);
     }
     return [];
   };
 
-  const [suites, setSuites] = useState<TestSuiteItem[]>(() => loadSuitesForProject(activeProject?.id || 'proj-sample'));
+  const [suites, setSuites] = useState<TestSuiteItem[]>(() => loadSuitesForProject(activeProject?.id || 'proj-default'));
 
   // Reload suites whenever activeProject.id changes
   useEffect(() => {
@@ -140,9 +79,6 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
     if (!activeProject?.id) return;
     try {
       localStorage.setItem(getSuitesKey(activeProject.id), JSON.stringify(suites));
-      if (activeProject.id === 'proj-sample') {
-        localStorage.setItem('alpinex_functional_suites', JSON.stringify(suites));
-      }
     } catch (e) {
       console.error('Failed to save functional suites to localStorage', e);
     }
@@ -564,7 +500,7 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
 
     const newSuite: TestSuiteItem = {
       id: `suite-${Math.random().toString(36).substring(2, 9)}`,
-      projectId: activeProject?.id || 'proj-sample',
+      projectId: activeProject?.id || 'proj-default',
       collectionId: selectedCollectionId || undefined,
       collectionName: boundColName,
       name: newSuiteName.trim(),

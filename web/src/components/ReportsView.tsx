@@ -40,20 +40,57 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ activeProject }) => {
   const baseline = reports.find((r) => r.id === selectedBaselineId);
   const candidate = reports.find((r) => r.id === selectedCandidateId);
 
-  const baselineP50 = baseline ? baseline.p50Latency : 58;
-  const candidateP50 = candidate ? candidate.p50Latency : 42;
-  const p50Delta = Math.round(((candidateP50 - baselineP50) / Math.max(1, baselineP50)) * 100);
+  if (reports.length === 0) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '1100px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h2 style={{ fontSize: '20px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <FileBarChart size={22} color="#6366f1" />
+              Reports & Performance Regression Compare
+            </h2>
+            <p style={{ fontSize: '13px', color: '#9ca3af', marginTop: '4px' }}>
+              Compare SLA benchmarks, latency distributions, and functional stability across separate endpoint test runs.
+            </p>
+          </div>
+        </div>
 
-  const baselineP95 = baseline ? baseline.p95Latency : 142;
-  const candidateP95 = candidate ? candidate.p95Latency : 118;
-  const p95Delta = Math.round(((candidateP95 - baselineP95) / Math.max(1, baselineP95)) * 100);
+        <div
+          style={{
+            backgroundColor: '#111827',
+            border: '1px dashed #374151',
+            borderRadius: '8px',
+            padding: '56px 24px',
+            textAlign: 'center',
+          }}
+        >
+          <FileBarChart size={44} color="#6366f1" style={{ margin: '0 auto 14px' }} />
+          <h3 style={{ fontSize: '16px', fontWeight: 'bold', color: '#f3f4f6' }}>
+            No Performance Reports Recorded
+          </h3>
+          <p style={{ fontSize: '13px', color: '#9ca3af', maxWidth: '480px', margin: '8px auto 0', lineHeight: '1.6' }}>
+            There are currently no performance test runs saved for project <strong>{activeProject?.name || 'Active Project'}</strong>.
+            Execute a Smoke, Load, Stress, or Spike test in the <strong>Performance Studio (k6)</strong> to generate isolated execution reports and compare regressions here.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
-  const baselineRps = baseline ? baseline.peakRps : 1120;
-  const candidateRps = candidate ? candidate.peakRps : 1420;
-  const rpsDelta = Math.round(((candidateRps - baselineRps) / Math.max(1, baselineRps)) * 100);
+  const baselineP50 = baseline ? baseline.p50Latency : 0;
+  const candidateP50 = candidate ? candidate.p50Latency : 0;
+  const p50Delta = baselineP50 > 0 ? Math.round(((candidateP50 - baselineP50) / baselineP50) * 100) : 0;
 
-  const baselineErr = baseline ? baseline.errorRate : 0.0002;
-  const candidateErr = candidate ? candidate.errorRate : 0.00;
+  const baselineP95 = baseline ? baseline.p95Latency : 0;
+  const candidateP95 = candidate ? candidate.p95Latency : 0;
+  const p95Delta = baselineP95 > 0 ? Math.round(((candidateP95 - baselineP95) / baselineP95) * 100) : 0;
+
+  const baselineRps = baseline ? baseline.peakRps : 0;
+  const candidateRps = candidate ? candidate.peakRps : 0;
+  const rpsDelta = baselineRps > 0 ? Math.round(((candidateRps - baselineRps) / baselineRps) * 100) : 0;
+
+  const baselineErr = baseline ? baseline.errorRate : 0;
+  const candidateErr = candidate ? candidate.errorRate : 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '1100px' }}>

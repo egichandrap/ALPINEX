@@ -38,46 +38,6 @@ interface PerformanceTestViewProps {
   collections: CollectionItem[];
 }
 
-const DEFAULT_SCENARIOS: PerformanceScenario[] = [
-  {
-    id: 'scen-auth-smoke',
-    projectId: 'proj-sample',
-    name: 'Auth Service Sanity Check',
-    method: 'POST',
-    url: 'http://localhost:8080/api/v1/auth/login',
-    body: '{\n  "email": "admin",\n  "password": "admin"\n}',
-    profile: 'SMOKE',
-    targetVUs: 5,
-    duration: '30s',
-    p95Threshold: 300,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'scen-catalog-load',
-    projectId: 'proj-sample',
-    name: 'Workspace Catalog Baseline',
-    method: 'GET',
-    url: 'http://localhost:8080/api/v1/workspaces/ws-default/projects',
-    profile: 'LOAD',
-    targetVUs: 50,
-    duration: '1m',
-    p95Threshold: 500,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'scen-health-stress',
-    projectId: 'proj-sample',
-    name: 'Health Telemetry Capacity Limit',
-    method: 'GET',
-    url: 'http://localhost:8080/health',
-    profile: 'STRESS',
-    targetVUs: 200,
-    duration: '2m',
-    p95Threshold: 800,
-    createdAt: new Date().toISOString(),
-  },
-];
-
 export const PerformanceTestView: React.FC<PerformanceTestViewProps> = ({
   authToken,
   activeProject,
@@ -90,7 +50,6 @@ export const PerformanceTestView: React.FC<PerformanceTestViewProps> = ({
     try {
       const saved = localStorage.getItem(getScenariosKey(projId));
       if (saved) return JSON.parse(saved);
-      if (projId === 'proj-sample') return DEFAULT_SCENARIOS;
     } catch (e) {
       console.error('Failed to load performance scenarios', e);
     }
@@ -107,8 +66,8 @@ export const PerformanceTestView: React.FC<PerformanceTestViewProps> = ({
     return [];
   };
 
-  const [scenarios, setScenarios] = useState<PerformanceScenario[]>(() => loadScenarios(activeProject?.id || 'proj-sample'));
-  const [reports, setReports] = useState<PerformanceReport[]>(() => loadReports(activeProject?.id || 'proj-sample'));
+  const [scenarios, setScenarios] = useState<PerformanceScenario[]>(() => loadScenarios(activeProject?.id || 'proj-default'));
+  const [reports, setReports] = useState<PerformanceReport[]>(() => loadReports(activeProject?.id || 'proj-default'));
 
   // Main View Mode: SCENARIOS (Configure/Run), REPORTS (Separate reports), K6_SCRIPT
   const [viewTab, setViewTab] = useState<'SCENARIOS' | 'REPORTS' | 'K6_SCRIPT'>('SCENARIOS');
@@ -265,7 +224,7 @@ export const PerformanceTestView: React.FC<PerformanceTestViewProps> = ({
       const selectedCol = collections.find((c) => c.id === chosenColId);
       const newScen: PerformanceScenario = {
         id: `scen-${Date.now()}`,
-        projectId: activeProject?.id || 'proj-sample',
+        projectId: activeProject?.id || 'proj-default',
         collectionId: chosenColId || undefined,
         collectionName: selectedCol?.name,
         requestId: chosenReqId || undefined,
@@ -598,7 +557,7 @@ export const PerformanceTestView: React.FC<PerformanceTestViewProps> = ({
 
       const report: PerformanceReport = {
         id: `rep-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        projectId: activeProject?.id || 'proj-sample',
+        projectId: activeProject?.id || 'proj-default',
         scenarioId: scen.id,
         scenarioName: scen.name,
         endpointMethod: scen.method,
