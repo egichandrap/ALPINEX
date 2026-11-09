@@ -23,7 +23,8 @@ import {
   Sliders,
   Check,
   Sparkles,
-  FileText
+  FileText,
+  AlertTriangle
 } from 'lucide-react';
 import { CollectionItem, RequestItem, HeaderItem, HTTPMethod } from './types/collection';
 import { UserProfile, ProjectItem } from './types/auth';
@@ -497,8 +498,11 @@ export default function App() {
   const handleSendRequest = async () => {
     setLoading(true);
     const start = performance.now();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    let resolvedUrl = url.trim();
+
     try {
-      let resolvedUrl = url.trim();
       if (resolvedUrl.includes('{{base_url}}')) {
         const base = activeContext?.collection.baseUrl || 'http://localhost:8080';
         resolvedUrl = resolvedUrl.replace(/\{\{base_url\}\}/g, base.replace(/\/$/, ''));
@@ -522,24 +526,63 @@ export default function App() {
         method,
         headers,
         body: method !== 'GET' && method !== 'HEAD' && requestBody.trim() ? requestBody : undefined,
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
+
       const data = await res.json().catch(() => res.text());
       const durationMs = Math.round(performance.now() - start);
 
       setResponse({
         status: res.status,
-        statusText: res.statusText,
+        statusText: res.statusText || 'OK',
         time: durationMs,
-        size: JSON.stringify(data).length,
+        size: typeof data === 'string' ? data.length : JSON.stringify(data).length,
         body: data,
         headers: Object.fromEntries(res.headers.entries()),
       });
     } catch (err: any) {
+      clearTimeout(timeoutId);
+      const durationMs = Math.round(performance.now() - start);
+      const isTimeout = err.name === 'AbortError';
+
+      let errorTitle = isTimeout ? 'Connection Timeout (8000ms Exceeded)' : 'Connection Failed (Target Unreachable)';
+      let errorDetail = isTimeout
+        ? 'Target host did not respond within 8000ms (silent packet drop or host offline).'
+        : (err.message === 'Failed to fetch' || err.name === 'TypeError'
+            ? 'Failed to fetch (Unable to establish TCP/TLS connection with host).'
+            : (err.message || 'Network Failure'));
+
       setResponse({
-        status: 500,
-        statusText: 'Network / CORS Error',
-        time: Math.round(performance.now() - start),
-        body: { error: err.message || 'Failed to fetch target' },
+        status: 0,
+        statusText: isTimeout ? 'Timeout Error' : 'Connection / CORS Error',
+        time: durationMs,
+        size: 0,
+        headers: {},
+        isDiagnosticError: true,
+        diagnostic: {
+          title: errorTitle,
+          reason: errorDetail,
+          targetUrl: resolvedUrl,
+          checklist: [
+            '🔒 VPN Connection: If this endpoint is on an internal/private network (e.g., 10.x.x.x, 192.168.x.x, *.internal), ensure your VPN client is active and connected.',
+            '🛡️ Firewall / Whitelist: The destination IP or port may be blocked by a corporate firewall, security group, or WAF.',
+            '⚡ Server Status: Verify the backend service is currently running and listening on the designated port.',
+            '🌐 CORS Policy: Web browsers block cross-origin requests unless the server responds with Access-Control-Allow-Origin headers.',
+            '🔗 Protocol & Host: Double check if the URL scheme should be http vs https or if the domain name resolves.'
+          ]
+        },
+        body: {
+          error: errorTitle,
+          message: errorDetail,
+          targetUrl: resolvedUrl,
+          diagnosticChecklist: [
+            '1. VPN Connection: Ensure VPN is connected if targeting private/intranet hosts.',
+            '2. Firewall: Verify corporate firewall / security group allows inbound traffic.',
+            '3. Service Health: Check if the server process is alive and healthy.',
+            '4. CORS Header: Server must allow Cross-Origin Resource Sharing from this origin.'
+          ]
+        },
       });
     } finally {
       setLoading(false);
@@ -584,7 +627,7 @@ export default function App() {
               ALPINE<span className="x">X</span>
             </div>
             <div style={{ fontSize: '10px', color: '#9ca3af', marginTop: '2px', fontWeight: '500' }}>
-              v1.0.7 • API & Load Platform
+              v1.0.9 • API & Load Platform
             </div>
           </div>
         </div>
@@ -1009,7 +1052,37 @@ export default function App() {
 
                   <div style={{ flex: 1, backgroundColor: '#0b0f19', borderRadius: '4px', border: '1px solid #1f2937', padding: '12px', overflow: 'auto', fontFamily: 'monospace', fontSize: '13px' }}>
                     {response ? (
-                      <pre style={{ color: '#a5f3fc' }}>{JSON.stringify(response.body, null, 2)}</pre>
+                      <div>
+                        {response.diagnostic && (
+                          <div style={{
+                            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                            border: '1px solid rgba(239, 68, 68, 0.3)',
+                            borderRadius: '6px',
+                            padding: '14px',
+                            marginBottom: '14px',
+                            fontFamily: 'Inter, system-ui, sans-serif'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f87171', fontWeight: 'bold', fontSize: '13px', marginBottom: '6px' }}>
+                              <AlertTriangle size={16} />
+                              <span>{response.diagnostic.title}</span>
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#fca5a5', marginBottom: '10px' }}>
+                              {response.diagnostic.reason}
+                            </div>
+                            <div style={{ fontSize: '11px', color: '#9ca3af', marginBottom: '6px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                              Troubleshooting Diagnostic Checklist:
+                            </div>
+                            <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '12px', color: '#d1d5db', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              {response.diagnostic.checklist.map((item: string, idx: number) => (
+                                <li key={idx}>{item}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        <pre style={{ color: response.isDiagnosticError ? '#fca5a5' : '#a5f3fc', margin: 0 }}>
+                          {JSON.stringify(response.body, null, 2)}
+                        </pre>
+                      </div>
                     ) : (
                       <div style={{ color: '#6b7280', textAlign: 'center', marginTop: '40px' }}>Hit "Send" to execute request and inspect telemetry.</div>
                     )}

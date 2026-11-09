@@ -338,6 +338,9 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
       }));
 
       const startTime = performance.now();
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 7000);
+
       try {
         let reqUrl = step.url;
         // Resolve {{base_url}}
@@ -376,7 +379,9 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
           method: step.method,
           headers,
           body: step.method !== 'GET' && step.method !== 'HEAD' && bodyPayload ? bodyPayload : undefined,
+          signal: controller.signal,
         });
+        clearTimeout(timeoutId);
 
         const latency = Math.round(performance.now() - startTime);
         const data = await res.json().catch(() => null);
@@ -443,11 +448,27 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
           }
         }
       } catch (err: any) {
+        clearTimeout(timeoutId);
         const latency = Math.round(performance.now() - startTime);
-        addLog(`✖ [Step ${i + 1}: ${step.name}] NETWORK ERROR (${latency}ms): ${err.message}`);
+        const isTimeout = err.name === 'AbortError';
+
+        let errReason = isTimeout
+          ? 'Connection Timeout (7000ms exceeded — host did not respond)'
+          : (err.message === 'Failed to fetch' || err.name === 'TypeError'
+              ? 'Failed to fetch (Host unreachable / handshake rejected)'
+              : (err.message || 'Network Failure'));
+
+        addLog(`✖ [Step ${i + 1}: ${step.name}] UNREACHABLE (${latency}ms): ${errReason}`);
+        addLog(`   ↳ Diagnostic: Target "${step.method} ${step.url}" could not be reached.`);
+        addLog(`   ↳ Checklist: 1) Verify VPN connection if internal subnet, 2) Check firewall/whitelist, 3) Verify server status & CORS.`);
+
         setStepResults((prev) => ({
           ...prev,
-          [step.id]: { status: 'FAILED', latency, details: err.message },
+          [step.id]: {
+            status: 'FAILED',
+            latency,
+            details: `${errReason} — Check VPN connection or firewall`,
+          },
         }));
         suiteFailed = true;
         if (activeSuite.stopOnFailure) {
@@ -986,10 +1007,11 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
                     </div>
                   ) : (
                     logs.map((log, index) => {
-                      const isError = log.includes('✖') || log.includes('FAILED') || log.includes('NETWORK ERROR') || log.includes('⛔') || log.includes('❌');
+                      const isError = log.includes('✖') || log.includes('FAILED') || log.includes('NETWORK ERROR') || log.includes('⛔') || log.includes('❌') || log.includes('UNREACHABLE');
                       const isSuccess = log.includes('✔') || log.includes('✅') || log.includes('ALL SUITE ASSERTIONS PASSED');
+                      const isWarning = log.includes('⚠') || log.includes('Diagnostic:') || log.includes('Checklist:') || log.includes('Check VPN');
                       const isInfo = log.includes('▶');
-                      const isExtract = log.includes('↳');
+                      const isExtract = log.includes('↳') && !isWarning;
                       const isSeparator = log.includes('────');
 
                       let color = '#d1d5db';
@@ -1003,6 +1025,10 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
                       } else if (isSuccess) {
                         color = '#6ee7b7';
                         bg = 'rgba(16, 185, 129, 0.08)';
+                        fontWeight = 'bold';
+                      } else if (isWarning) {
+                        color = '#fde047';
+                        bg = 'rgba(234, 179, 8, 0.1)';
                         fontWeight = 'bold';
                       } else if (isInfo) {
                         color = '#38bdf8';
@@ -1019,11 +1045,19 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
                           style={{
                             color,
                             backgroundColor: bg,
-                            padding: isError || isSuccess ? '3px 8px' : '1px 4px',
+                            padding: isError || isSuccess || isWarning ? '3px 8px' : '1px 4px',
                             borderRadius: '4px',
                             margin: '2px 0',
                             fontWeight,
-                            borderLeft: isError ? '3px solid #ef4444' : isSuccess ? '3px solid #10b981' : isInfo ? '3px solid #0284c7' : 'none',
+                            borderLeft: isError
+                              ? '3px solid #ef4444'
+                              : isSuccess
+                              ? '3px solid #10b981'
+                              : isWarning
+                              ? '3px solid #eab308'
+                              : isInfo
+                              ? '3px solid #0284c7'
+                              : 'none',
                           }}
                         >
                           {log}

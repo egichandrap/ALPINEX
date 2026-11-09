@@ -330,11 +330,11 @@ export const PerformanceTestView: React.FC<PerformanceTestViewProps> = ({
       const latency = Math.round(performance.now() - start);
       let errorMsg =
         err.name === 'AbortError'
-          ? 'Connection Timeout (7000ms)'
+          ? 'Connection Timeout (7000ms — Host did not respond)'
           : err.message || 'Network Failure';
 
-      if (errorMsg === 'Failed to fetch') {
-        errorMsg = 'Failed to fetch (Endpoint unreachable — Check VPN / Intranet / CORS)';
+      if (errorMsg === 'Failed to fetch' || err.name === 'TypeError') {
+        errorMsg = 'Failed to fetch (Endpoint unreachable — Check VPN / Intranet / Firewall / CORS)';
       }
 
       return {
@@ -393,7 +393,8 @@ export const PerformanceTestView: React.FC<PerformanceTestViewProps> = ({
         setLiveLogs((prev) => [
           ...prev,
           `❌ [PREFLIGHT FAILED] Target "${t.name}" (${targetUrl}) is UNREACHABLE!`,
-          `   ↳ Reason: ${preflight.error}. If this host requires VPN or corporate intranet, make sure VPN is ACTIVE.`,
+          `   ↳ Reason: ${preflight.error}.`,
+          `   ↳ Diagnostic Checklist: 1) Verify VPN connection if internal subnet, 2) Check firewall/whitelist rules, 3) Verify server is running & CORS allowed.`,
         ]);
       } else {
         setLiveLogs((prev) => [
@@ -1025,7 +1026,12 @@ export default function () {
                     log.includes('FAILED') ||
                     log.includes('UNREACHABLE') ||
                     log.includes('Failed to fetch');
-                  const isWarning = log.includes('⚠️') || log.includes('WARNING');
+                  const isWarning =
+                    log.includes('⚠️') ||
+                    log.includes('WARNING') ||
+                    log.includes('Diagnostic') ||
+                    log.includes('Checklist') ||
+                    log.includes('Check VPN');
                   const isPass =
                     log.includes('✔') ||
                     log.includes('PASS') ||
