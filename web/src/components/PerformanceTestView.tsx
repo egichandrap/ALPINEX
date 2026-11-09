@@ -31,17 +31,20 @@ import {
   PerformanceMetricPoint,
   PerformanceReport,
 } from '../types/performance';
+import { EnvironmentConfig, DEFAULT_ENVIRONMENTS, resolveEnvironmentVariables } from '../types/environment';
 
 interface PerformanceTestViewProps {
   authToken: string | null;
   activeProject: ProjectItem;
   collections: CollectionItem[];
+  activeEnv?: EnvironmentConfig;
 }
 
 export const PerformanceTestView: React.FC<PerformanceTestViewProps> = ({
   authToken,
   activeProject,
   collections = [],
+  activeEnv = DEFAULT_ENVIRONMENTS[0],
 }) => {
   const getScenariosKey = (projId: string) => `alpinex_perf_scenarios_${projId}`;
   const getReportsKey = (projId: string) => `alpinex_perf_reports_${projId}`;
@@ -265,14 +268,14 @@ export const PerformanceTestView: React.FC<PerformanceTestViewProps> = ({
     return isNaN(num) ? 30 : Math.max(5, Math.round(num));
   };
 
-  // Resolve Target URL (replacing {{base_url}} or relative path)
+  // Resolve Target URL (replacing {{base_url}} or relative path using activeEnv)
   const resolveTargetUrl = (scen: PerformanceScenario): string => {
     let url = scen.url.trim();
     const boundCol = collections.find((c) => c.id === scen.collectionId) || collections[0];
-    const baseUrl = (boundCol?.baseUrl || 'http://localhost:8080').replace(/\/$/, '');
-    if (url.includes('{{base_url}}')) {
-      url = url.replace(/\{\{base_url\}\}/g, baseUrl);
-    } else if (url.startsWith('/')) {
+    const baseUrl = (activeEnv?.baseUrl || boundCol?.baseUrl || 'http://localhost:8080').replace(/\/$/, '');
+    
+    url = resolveEnvironmentVariables(url, activeEnv, boundCol?.baseUrl);
+    if (url.startsWith('/')) {
       url = `${baseUrl}${url}`;
     }
     return url;
@@ -375,6 +378,7 @@ export const PerformanceTestView: React.FC<PerformanceTestViewProps> = ({
 
     setLiveLogs([
       `🚀 [${startTimestamp}] Initializing AlpineX Live k6 Engine v2.3.0...`,
+      `🌐 Target Environment: ${activeEnv.name.toUpperCase()} (Base URL: ${activeEnv.baseUrl})`,
       `⚙️ Orchestration Mode: ${isParallel ? `PARALLEL CONCURRENT WORKLOAD (${targets.length} endpoints)` : `ISOLATED ENDPOINT WORKLOAD`}`,
       ...targets.map(
         (t) =>
@@ -664,10 +668,30 @@ export default function () {
       {/* View Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
         <div>
-          <h2 style={{ fontSize: '20px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Zap size={22} color="#f59e0b" />
-            Performance & Load Testing Studio (k6)
-          </h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <h2 style={{ fontSize: '20px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+              <Zap size={22} color="#f59e0b" />
+              Performance & Load Testing Studio (k6)
+            </h2>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: '11px',
+                fontWeight: 'bold',
+                padding: '2px 8px',
+                borderRadius: '4px',
+                backgroundColor: `${activeEnv.color}15`,
+                border: `1px solid ${activeEnv.color}40`,
+                color: activeEnv.color,
+              }}
+              title={`Executing load against ${activeEnv.name} environment`}
+            >
+              <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: activeEnv.color }} />
+              <span>{activeEnv.name}</span>
+            </div>
+          </div>
           <p style={{ fontSize: '13px', color: '#9ca3af', marginTop: '4px' }}>
             Configure endpoint-specific workloads (Smoke, Load, Stress, Spike), execute in parallel, and generate isolated telemetry reports.
           </p>

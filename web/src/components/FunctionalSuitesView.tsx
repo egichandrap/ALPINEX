@@ -22,11 +22,13 @@ import {
 import { TestSuiteItem, TestCaseItem, Assertion, VariableExtraction, AssertionSource, AssertionOperator } from '../types/functional';
 import { CollectionItem, RequestItem, HTTPMethod } from '../types/collection';
 import { ProjectItem } from '../types/auth';
+import { EnvironmentConfig, DEFAULT_ENVIRONMENTS, resolveEnvironmentVariables } from '../types/environment';
 
 interface FunctionalSuitesViewProps {
   authToken: string | null;
   activeProject: ProjectItem;
   collections: CollectionItem[];
+  activeEnv?: EnvironmentConfig;
 }
 
 // Safely extract nested properties via JSONPath / dot notation / array indexing (e.g. "$.data.token", "items[0].id")
@@ -49,6 +51,7 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
   authToken,
   activeProject,
   collections = [],
+  activeEnv = DEFAULT_ENVIRONMENTS[0],
 }) => {
   const getSuitesKey = (projId: string) => `alpinex_functional_suites_${projId}`;
 
@@ -315,7 +318,11 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
       setLogs((prev) => [...prev, `[${timestamp}] ${msg}`]);
     };
 
+    const boundCol = collections.find((c) => c.id === activeSuite.collectionId);
+    const defaultBaseUrl = (activeEnv?.baseUrl || boundCol?.baseUrl || 'http://localhost:8080').replace(/\/$/, '');
+
     addLog(`Initiating Functional Suite: "${activeSuite.name}" (Engine: NATIVE_HTTP)`);
+    addLog(`🌐 Target Environment: ${activeEnv.name.toUpperCase()} (Base URL: ${defaultBaseUrl})`);
     if (activeSuite.collectionName) {
       addLog(`Bound Collection: ${activeSuite.collectionName}`);
     }
@@ -323,10 +330,6 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
 
     const extractedContext: Record<string, any> = {};
     let suiteFailed = false;
-
-    // Base URL resolution
-    const boundCol = collections.find((c) => c.id === activeSuite.collectionId);
-    const defaultBaseUrl = boundCol?.baseUrl || 'http://localhost:8080';
 
     for (let i = 0; i < activeSuite.cases.length; i++) {
       const step = activeSuite.cases[i];
@@ -342,11 +345,7 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
       const timeoutId = setTimeout(() => controller.abort(), 7000);
 
       try {
-        let reqUrl = step.url;
-        // Resolve {{base_url}}
-        if (reqUrl.includes('{{base_url}}')) {
-          reqUrl = reqUrl.replace(/\{\{base_url\}\}/g, defaultBaseUrl.replace(/\/$/, ''));
-        }
+        let reqUrl = resolveEnvironmentVariables(step.url, activeEnv, boundCol?.baseUrl);
 
         // Resolve extracted session variables like {{auth_token}} or {{order_id}}
         Object.entries(extractedContext).forEach(([k, v]) => {
@@ -370,6 +369,7 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
 
         let bodyPayload = step.body;
         if (bodyPayload && typeof bodyPayload === 'string') {
+          bodyPayload = resolveEnvironmentVariables(bodyPayload, activeEnv);
           Object.entries(extractedContext).forEach(([k, v]) => {
             bodyPayload = bodyPayload!.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), String(v));
           });
@@ -545,10 +545,30 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
       {/* View Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <h2 style={{ fontSize: '20px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <FileCheck size={22} color="#10b981" />
-            Functional Suites (Chained API Automation)
-          </h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <h2 style={{ fontSize: '20px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+              <FileCheck size={22} color="#10b981" />
+              Functional Suites (Chained API Automation)
+            </h2>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: '11px',
+                fontWeight: 'bold',
+                padding: '2px 8px',
+                borderRadius: '4px',
+                backgroundColor: `${activeEnv.color}15`,
+                border: `1px solid ${activeEnv.color}40`,
+                color: activeEnv.color,
+              }}
+              title={`Executing against ${activeEnv.name} environment`}
+            >
+              <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: activeEnv.color }} />
+              <span>{activeEnv.name}</span>
+            </div>
+          </div>
           <p style={{ fontSize: '13px', color: '#9ca3af', marginTop: '4px' }}>
             Orchestrate end-to-end API workflows with endpoints selected directly from your API collections.
           </p>

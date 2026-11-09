@@ -24,10 +24,13 @@ import {
   Check,
   Sparkles,
   FileText,
-  AlertTriangle
+  AlertTriangle,
+  Briefcase,
+  Lock
 } from 'lucide-react';
 import { CollectionItem, RequestItem, HeaderItem, HTTPMethod } from './types/collection';
 import { UserProfile, ProjectItem } from './types/auth';
+import { EnvironmentConfig, DEFAULT_ENVIRONMENTS, resolveEnvironmentVariables } from './types/environment';
 import { AddCollectionModal } from './components/AddCollectionModal';
 import { RequestConfigModal } from './components/RequestConfigModal';
 import { LoginPage } from './components/LoginPage';
@@ -38,6 +41,7 @@ import { ReportsView } from './components/ReportsView';
 import { PerformanceTestView } from './components/PerformanceTestView';
 import { ExecutionCenterView } from './components/ExecutionCenterView';
 import { TutorialTour } from './components/TutorialTour';
+import { EnvironmentModal } from './components/EnvironmentModal';
 
 interface MetricPoint {
   time: string;
@@ -219,7 +223,24 @@ export default function App() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [response, setResponse] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const [env, setEnv] = useState('Development');
+  // Environment State (Development, Staging, Production)
+  const [environments, setEnvironments] = useState<EnvironmentConfig[]>(() => {
+    try {
+      const saved = localStorage.getItem('alpinex_environments');
+      return saved ? JSON.parse(saved) : DEFAULT_ENVIRONMENTS;
+    } catch {
+      return DEFAULT_ENVIRONMENTS;
+    }
+  });
+  const [activeEnvId, setActiveEnvId] = useState<'dev' | 'staging' | 'prod'>('dev');
+  const [isEnvModalOpen, setIsEnvModalOpen] = useState(false);
+
+  const activeEnv = environments.find((e) => e.id === activeEnvId) || environments[0];
+
+  const handleSaveEnvironments = (updatedEnvs: EnvironmentConfig[]) => {
+    setEnvironments(updatedEnvs);
+    localStorage.setItem('alpinex_environments', JSON.stringify(updatedEnvs));
+  };
 
   // Request Config Modal State
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
@@ -500,18 +521,26 @@ export default function App() {
     const start = performance.now();
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 8000);
-    let resolvedUrl = url.trim();
+    // Resolve URL with Environment Configuration (base_url & custom env variables)
+    let resolvedUrl = resolveEnvironmentVariables(url.trim(), activeEnv, activeContext?.collection.baseUrl);
+
+    // Production Safety Guard: Confirm destructive HTTP methods
+    if (activeEnvId === 'prod' && (method === 'POST' || method === 'PUT' || method === 'DELETE' || method === 'PATCH')) {
+      const proceed = confirm(
+        `⚠️ PRODUCTION SAFETY CONFIRMATION:\n\nYou are about to execute a destructive ${method} request against LIVE PRODUCTION infrastructure:\n${resolvedUrl}\n\nDo you want to proceed?`
+      );
+      if (!proceed) {
+        setLoading(false);
+        clearTimeout(timeoutId);
+        return;
+      }
+    }
 
     try {
-      if (resolvedUrl.includes('{{base_url}}')) {
-        const base = activeContext?.collection.baseUrl || 'http://localhost:8080';
-        resolvedUrl = resolvedUrl.replace(/\{\{base_url\}\}/g, base.replace(/\/$/, ''));
-      }
-
       const headers: Record<string, string> = {};
       activeHeaders.forEach((h) => {
         if (h.enabled && h.key.trim()) {
-          headers[h.key.trim()] = h.value;
+          headers[h.key.trim()] = resolveEnvironmentVariables(h.value, activeEnv);
         }
       });
 
@@ -522,10 +551,14 @@ export default function App() {
         headers['Authorization'] = `Bearer ${authToken}`;
       }
 
+      const bodyPayload = method !== 'GET' && method !== 'HEAD' && requestBody.trim()
+        ? resolveEnvironmentVariables(requestBody.trim(), activeEnv)
+        : undefined;
+
       const res = await fetch(resolvedUrl, {
         method,
         headers,
-        body: method !== 'GET' && method !== 'HEAD' && requestBody.trim() ? requestBody : undefined,
+        body: bodyPayload,
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
@@ -627,7 +660,7 @@ export default function App() {
               ALPINE<span className="x">X</span>
             </div>
             <div style={{ fontSize: '10px', color: '#9ca3af', marginTop: '2px', fontWeight: '500' }}>
-              v1.0.9 • API & Load Platform
+              v1.1.0 • API & Load Platform
             </div>
           </div>
         </div>
@@ -662,20 +695,115 @@ export default function App() {
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* Top Navbar */}
         <header style={{ height: '60px', backgroundColor: '#111827', borderBottom: '1px solid #1f2937', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <span style={{ fontSize: '14px', color: '#9ca3af' }}>Workspace: <strong style={{ color: '#f3f4f6' }}>Default Workspace</strong></span>
-            <span style={{ color: '#374151' }}>/</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            {/* Workspace & Dynamic Active Project Breadcrumb */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '12px', color: '#9ca3af' }}>Environment:</span>
-              <select
-                value={env}
-                onChange={(e) => setEnv(e.target.value)}
-                style={{ backgroundColor: '#1f2937', color: '#f3f4f6', border: '1px solid #374151', padding: '4px 8px', borderRadius: '4px', fontSize: '12px' }}
+              <span style={{ fontSize: '13px', color: '#9ca3af', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Layers size={14} color="#9ca3af" />
+                <span>Workspace:</span>
+                <strong style={{ color: '#d1d5db' }}>Default Workspace</strong>
+              </span>
+
+              <span style={{ color: '#374151', fontSize: '14px' }}>/</span>
+
+              {/* Dynamic Active Project Pill (Updates immediately when user switches projects) */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  backgroundColor: '#1e1b4b',
+                  border: '1px solid #4f46e5',
+                  borderRadius: '6px',
+                  padding: '3px 10px',
+                  color: '#c7d2fe',
+                }}
+                title={`Active Project: ${activeProject?.name || 'Default Project'}`}
               >
-                <option>Development</option>
-                <option>Staging</option>
-                <option>Production (Locked)</option>
-              </select>
+                <Briefcase size={13} color="#a5b4fc" />
+                <span style={{ fontSize: '12px', fontWeight: 'bold' }}>
+                  {activeProject?.name || 'Default Project'}
+                </span>
+              </div>
+            </div>
+
+            <span style={{ color: '#374151', fontSize: '14px' }}>/</span>
+
+            {/* Dynamic Environment Selector with Status Glow & Color Badge */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  backgroundColor: '#0b0f19',
+                  border: `1px solid ${activeEnv.color}50`,
+                  borderRadius: '6px',
+                  padding: '3px 10px',
+                  boxShadow: `0 0 10px ${activeEnv.color}15`,
+                }}
+              >
+                <div
+                  style={{
+                    width: '8px',
+                    height: '8px',
+                    borderRadius: '50%',
+                    backgroundColor: activeEnv.color,
+                    boxShadow: `0 0 6px ${activeEnv.color}`,
+                  }}
+                />
+                <span style={{ fontSize: '11px', color: '#9ca3af', fontWeight: 'bold' }}>ENV:</span>
+                <select
+                  value={activeEnvId}
+                  onChange={(e) => setActiveEnvId(e.target.value as 'dev' | 'staging' | 'prod')}
+                  style={{
+                    backgroundColor: 'transparent',
+                    color: activeEnv.color,
+                    border: 'none',
+                    fontSize: '12px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    outline: 'none',
+                  }}
+                >
+                  {environments.map((e) => (
+                    <option key={e.id} value={e.id} style={{ backgroundColor: '#111827', color: '#f3f4f6' }}>
+                      {e.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Manage Environment Variables Button */}
+              <button
+                onClick={() => setIsEnvModalOpen(true)}
+                title="Configure Environment Variables, Base URLs & Secrets"
+                style={{
+                  backgroundColor: '#1f2937',
+                  border: '1px solid #374151',
+                  borderRadius: '6px',
+                  padding: '5px 10px',
+                  color: '#d1d5db',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '11px',
+                  fontWeight: '500',
+                  transition: 'all 0.15s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = '#818cf8';
+                  e.currentTarget.style.borderColor = '#6366f1';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = '#d1d5db';
+                  e.currentTarget.style.borderColor = '#374151';
+                }}
+              >
+                <Sliders size={13} color="#818cf8" />
+                <span>Variables</span>
+              </button>
             </div>
           </div>
 
@@ -771,6 +899,42 @@ export default function App() {
             </div>
           </div>
         </header>
+
+        {/* Production (Locked) Safety Mode Banner */}
+        {activeEnvId === 'prod' && (
+          <div
+            style={{
+              backgroundColor: 'rgba(239, 68, 68, 0.12)',
+              borderBottom: '1px solid rgba(239, 68, 68, 0.3)',
+              padding: '8px 24px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: '12px',
+              color: '#fca5a5',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600 }}>
+              <Lock size={15} color="#ef4444" />
+              <span>
+                PRODUCTION (LOCKED) MODE ACTIVE — All requests and load tests will execute against LIVE PRODUCTION infrastructure ({activeEnv.baseUrl}).
+              </span>
+            </div>
+            <span
+              style={{
+                fontSize: '10px',
+                backgroundColor: 'rgba(239, 68, 68, 0.25)',
+                color: '#f87171',
+                padding: '2px 8px',
+                borderRadius: '4px',
+                fontWeight: 'bold',
+                letterSpacing: '0.05em',
+              }}
+            >
+              SAFETY LOCK ENGAGED
+            </span>
+          </div>
+        )}
 
         {/* Dynamic Views */}
         <div
@@ -872,6 +1036,60 @@ export default function App() {
                       </button>
                     )}
                   </div>
+                </div>
+
+                {/* Active Environment Context Helper Bar */}
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    backgroundColor: '#111827',
+                    border: `1px solid ${activeEnv.color}35`,
+                    borderRadius: '6px',
+                    padding: '8px 14px',
+                    fontSize: '12px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <span style={{ color: '#9ca3af' }}>Active Environment:</span>
+                    <span
+                      style={{
+                        color: activeEnv.color,
+                        fontWeight: 'bold',
+                        backgroundColor: `${activeEnv.color}15`,
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                      }}
+                    >
+                      <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: activeEnv.color }} />
+                      {activeEnv.name}
+                    </span>
+                    <span style={{ color: '#374151' }}>•</span>
+                    <span style={{ color: '#9ca3af', fontFamily: 'monospace' }}>
+                      <strong style={{ color: '#38bdf8' }}>{'{{base_url}}'}</strong> &rarr; <span style={{ color: '#e5e7eb' }}>{activeEnv.baseUrl}</span>
+                    </span>
+                  </div>
+
+                  <button
+                    onClick={() => setIsEnvModalOpen(true)}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#818cf8',
+                      fontSize: '11px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      textDecoration: 'underline',
+                    }}
+                  >
+                    <Sliders size={12} /> Configure Variables
+                  </button>
                 </div>
 
                 {/* URL Bar */}
@@ -1097,6 +1315,7 @@ export default function App() {
               authToken={authToken}
               activeProject={activeProject}
               collections={collections}
+              activeEnv={activeEnv}
             />
           )}
 
@@ -1105,6 +1324,7 @@ export default function App() {
               authToken={authToken}
               activeProject={activeProject}
               collections={collections}
+              activeEnv={activeEnv}
             />
           )}
 
@@ -1164,6 +1384,16 @@ export default function App() {
         isOpen={isTutorialOpen}
         onClose={() => setIsTutorialOpen(false)}
         onNavigateTab={(tab) => setActiveTab(tab)}
+      />
+
+      {/* Environment & Variable Manager Modal */}
+      <EnvironmentModal
+        isOpen={isEnvModalOpen}
+        onClose={() => setIsEnvModalOpen(false)}
+        environments={environments}
+        activeEnvId={activeEnvId}
+        onSelectActiveEnv={(id) => setActiveEnvId(id)}
+        onSaveEnvironments={handleSaveEnvironments}
       />
     </div>
   );
