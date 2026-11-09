@@ -9,6 +9,10 @@ bin/
 # Test artifacts
 *.out
 coverage.html
+test-results/
+playwright-report/
+web/test-results/
+web/e2e/report/
 
 # Environment and secrets
 .env

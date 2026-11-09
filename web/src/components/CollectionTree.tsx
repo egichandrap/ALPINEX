@@ -10,7 +10,8 @@ import {
   Search,
   X,
   Minimize2,
-  Maximize2
+  Maximize2,
+  Download
 } from 'lucide-react';
 import { CollectionItem, RequestItem } from '../types/collection';
 
@@ -23,6 +24,7 @@ interface CollectionTreeProps {
   onOpenAddRequest: (colId: string) => void;
   onOpenEditRequest: (colId: string, req: RequestItem) => void;
   onDeleteRequest: (colId: string, reqId: string) => void;
+  onExportCollection?: (col: CollectionItem) => void;
   getMethodBadgeStyle: (method: string) => { bg: string; color: string };
 }
 
@@ -87,6 +89,7 @@ export const CollectionTree: React.FC<CollectionTreeProps> = ({
   onOpenAddRequest,
   onOpenEditRequest,
   onDeleteRequest,
+  onExportCollection,
   getMethodBadgeStyle,
 }) => {
   const [expandedCollections, setExpandedCollections] = useState<Record<string, boolean>>({});
@@ -553,6 +556,37 @@ export const CollectionTree: React.FC<CollectionTreeProps> = ({
                     >
                       {filteredRequests.length}
                     </span>
+                    {onExportCollection && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onExportCollection(col);
+                        }}
+                        title="Export collection as JSON"
+                        style={{
+                          background: '#1f2937',
+                          border: '1px solid #374151',
+                          color: '#f3f4f6',
+                          cursor: 'pointer',
+                          padding: '2px 5px',
+                          borderRadius: '4px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '11px',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#374151';
+                          e.currentTarget.style.color = '#38bdf8';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = '#1f2937';
+                          e.currentTarget.style.color = '#f3f4f6';
+                        }}
+                      >
+                        <Download size={11} />
+                      </button>
+                    )}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();

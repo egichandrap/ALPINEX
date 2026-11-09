@@ -26,7 +26,10 @@ import {
   FileText,
   AlertTriangle,
   Briefcase,
-  Lock
+  Lock,
+  Copy,
+  Download,
+  Keyboard
 } from 'lucide-react';
 import { CollectionItem, RequestItem, HeaderItem, HTTPMethod } from './types/collection';
 import { UserProfile, ProjectItem } from './types/auth';
@@ -42,6 +45,8 @@ import { PerformanceTestView } from './components/PerformanceTestView';
 import { ExecutionCenterView } from './components/ExecutionCenterView';
 import { TutorialTour } from './components/TutorialTour';
 import { EnvironmentModal } from './components/EnvironmentModal';
+import { ToastContainer, ToastMessage } from './components/Toast';
+import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
 
 interface MetricPoint {
   time: string;
@@ -144,6 +149,66 @@ export default function App() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isTutorialOpen, setIsTutorialOpen] = useState(false);
 
+  // Toast Notification System
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const showToast = (type: 'success' | 'error' | 'info' | 'warning', message: string) => {
+    const id = 'toast-' + Math.random().toString(36).substring(2, 9);
+    setToasts((prev) => [...prev, { id, type, message }]);
+  };
+  const dismissToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  // Keyboard Shortcuts Modal State
+  const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
+  const [copiedResponse, setCopiedResponse] = useState(false);
+
+  // Collection Export as JSON
+  const handleExportCollection = (col: CollectionItem) => {
+    try {
+      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(col, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute('href', dataStr);
+      const fileName = `${col.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}-collection.json`;
+      downloadAnchor.setAttribute('download', fileName);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      showToast('success', `Collection "${col.name}" exported successfully!`);
+    } catch {
+      showToast('error', 'Failed to export collection');
+    }
+  };
+
+  // Response Actions: Copy JSON and Download File
+  const handleCopyResponse = () => {
+    if (!response) return;
+    try {
+      navigator.clipboard.writeText(JSON.stringify(response.body, null, 2));
+      setCopiedResponse(true);
+      showToast('success', 'Response JSON copied to clipboard!');
+      setTimeout(() => setCopiedResponse(false), 2000);
+    } catch {
+      showToast('error', 'Failed to copy to clipboard');
+    }
+  };
+
+  const handleDownloadResponse = () => {
+    if (!response) return;
+    try {
+      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(response.body, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute('href', dataStr);
+      downloadAnchor.setAttribute('download', `alpinex-response-${Date.now()}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      showToast('success', 'Response downloaded as JSON');
+    } catch {
+      showToast('error', 'Failed to download response');
+    }
+  };
+
   // Sync projects to localStorage
   useEffect(() => {
     try {
@@ -240,6 +305,7 @@ export default function App() {
   const handleSaveEnvironments = (updatedEnvs: EnvironmentConfig[]) => {
     setEnvironments(updatedEnvs);
     localStorage.setItem('alpinex_environments', JSON.stringify(updatedEnvs));
+    showToast('success', 'Environments & encrypted secrets updated successfully');
   };
 
   // Request Config Modal State
@@ -386,6 +452,7 @@ export default function App() {
     // Expand collection and select the request
     setExpandedCollections((prev) => ({ ...prev, [colId]: true }));
     handleSelectRequest(savedReq);
+    showToast('success', `Endpoint "${savedReq.name}" saved successfully`);
   };
 
   // Delete a request from a collection
@@ -433,6 +500,7 @@ export default function App() {
       })
     );
     setSaveSuccess(true);
+    showToast('success', 'Request changes saved to collection');
     setTimeout(() => setSaveSuccess(false), 2000);
   };
 
@@ -505,6 +573,7 @@ export default function App() {
     if (newCol.requests.length > 0) {
       handleSelectRequest(newCol.requests[0]);
     }
+    showToast('success', `Collection "${newCol.name}" created successfully`);
   };
 
   // Delete a collection
@@ -574,6 +643,7 @@ export default function App() {
         body: data,
         headers: Object.fromEntries(res.headers.entries()),
       });
+      showToast('success', `Response: ${res.status} ${res.statusText || 'OK'} (${durationMs}ms)`);
     } catch (err: any) {
       clearTimeout(timeoutId);
       const durationMs = Math.round(performance.now() - start);
@@ -617,10 +687,34 @@ export default function App() {
           ]
         },
       });
+      showToast('warning', errorTitle);
     } finally {
       setLoading(false);
     }
   };
+
+  // Global Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd/Ctrl + Enter triggers send request if on API tab
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        if (activeTab === 'api' && !loading) {
+          e.preventDefault();
+          handleSendRequest();
+        }
+      }
+      // '?' opens keyboard shortcuts guide when not in text input
+      if (e.key === '?' && !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) {
+        e.preventDefault();
+        setIsShortcutsOpen((prev) => !prev);
+      }
+      if (e.key === 'Escape') {
+        setIsShortcutsOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeTab, loading, method, url, activeHeaders, requestBody, activeEnv, authToken]);
 
   // Auth Gate: Render Login Page if user is not authenticated
   if (!currentUser || !authToken) {
@@ -660,7 +754,7 @@ export default function App() {
               ALPINE<span className="x">X</span>
             </div>
             <div style={{ fontSize: '10px', color: '#9ca3af', marginTop: '2px', fontWeight: '500' }}>
-              v1.1.0 • API & Load Platform
+              v1.1.1 • API & Load Platform
             </div>
           </div>
         </div>
@@ -755,7 +849,12 @@ export default function App() {
                 <span style={{ fontSize: '11px', color: '#9ca3af', fontWeight: 'bold' }}>ENV:</span>
                 <select
                   value={activeEnvId}
-                  onChange={(e) => setActiveEnvId(e.target.value as 'dev' | 'staging' | 'prod')}
+                  onChange={(e) => {
+                    const newId = e.target.value as 'dev' | 'staging' | 'prod';
+                    setActiveEnvId(newId);
+                    const envName = environments.find((x) => x.id === newId)?.name || newId;
+                    showToast('info', `Switched environment to: ${envName}`);
+                  }}
                   style={{
                     backgroundColor: 'transparent',
                     color: activeEnv.color,
@@ -807,11 +906,54 @@ export default function App() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '4px 10px', backgroundColor: '#1e293b', borderRadius: '12px', color: '#38bdf8' }}>
-              <ShieldCheck size={14} />
-              <span>SSRF Protected</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {/* Engine Status Pill */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: '11px',
+                fontWeight: 600,
+                padding: '4px 10px',
+                backgroundColor: 'rgba(6, 78, 59, 0.6)',
+                border: '1px solid #059669',
+                borderRadius: '12px',
+                color: '#34d399',
+              }}
+              title="ALPINEX Execution Control Plane & Runner Active"
+            >
+              <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#34d399' }} />
+              <span>Engine Active</span>
             </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', padding: '4px 9px', backgroundColor: '#1e293b', borderRadius: '12px', color: '#38bdf8' }}>
+              <ShieldCheck size={13} />
+              <span>SSRF Guard</span>
+            </div>
+
+            {/* Keyboard Shortcuts Trigger */}
+            <button
+              onClick={() => setIsShortcutsOpen(true)}
+              style={{
+                backgroundColor: '#1f2937',
+                border: '1px solid #374151',
+                color: '#d1d5db',
+                borderRadius: '6px',
+                padding: '5px 10px',
+                fontSize: '12px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                transition: 'all 0.2s',
+              }}
+              title="Keyboard Shortcuts Guide (?)"
+            >
+              <Keyboard size={13} color="#818cf8" />
+              <span>Shortcuts</span>
+            </button>
 
             {/* Tutorial Tour Trigger Button */}
             <button
@@ -959,6 +1101,7 @@ export default function App() {
                 onOpenAddRequest={handleOpenAddRequestModal}
                 onOpenEditRequest={handleOpenEditRequestModal}
                 onDeleteRequest={handleDeleteRequest}
+                onExportCollection={handleExportCollection}
                 getMethodBadgeStyle={getMethodBadgeStyle}
               />
 
@@ -1258,7 +1401,57 @@ export default function App() {
                 {/* Response Viewer */}
                 <div style={{ flex: 1, backgroundColor: '#111827', borderRadius: '8px', border: '1px solid #1f2937', padding: '16px', display: 'flex', flexDirection: 'column' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px solid #1f2937', paddingBottom: '8px' }}>
-                    <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#9ca3af' }}>RESPONSE</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#9ca3af' }}>RESPONSE</span>
+                      {response && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <button
+                            onClick={handleCopyResponse}
+                            title="Copy response JSON to clipboard"
+                            style={{
+                              background: '#1f2937',
+                              border: '1px solid #374151',
+                              borderRadius: '4px',
+                              color: copiedResponse ? '#34d399' : '#d1d5db',
+                              cursor: 'pointer',
+                              padding: '2px 8px',
+                              fontSize: '11px',
+                              fontWeight: '500',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                            onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#6366f1')}
+                            onMouseLeave={(e) => (e.currentTarget.style.borderColor = '#374151')}
+                          >
+                            {copiedResponse ? <Check size={12} color="#34d399" /> : <Copy size={12} />}
+                            <span>{copiedResponse ? 'Copied' : 'Copy'}</span>
+                          </button>
+                          <button
+                            onClick={handleDownloadResponse}
+                            title="Download response as JSON file"
+                            style={{
+                              background: '#1f2937',
+                              border: '1px solid #374151',
+                              borderRadius: '4px',
+                              color: '#d1d5db',
+                              cursor: 'pointer',
+                              padding: '2px 8px',
+                              fontSize: '11px',
+                              fontWeight: '500',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                            onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#38bdf8')}
+                            onMouseLeave={(e) => (e.currentTarget.style.borderColor = '#374151')}
+                          >
+                            <Download size={12} />
+                            <span>Download</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
                     {response && (
                       <div style={{ display: 'flex', gap: '16px', fontSize: '12px' }}>
                         <span>Status: <strong style={{ color: response.status >= 200 && response.status < 300 ? '#10b981' : '#ef4444' }}>{response.status} {response.statusText}</strong></span>
@@ -1395,6 +1588,15 @@ export default function App() {
         onSelectActiveEnv={(id) => setActiveEnvId(id)}
         onSaveEnvironments={handleSaveEnvironments}
       />
+
+      {/* Keyboard Shortcuts Modal */}
+      <KeyboardShortcutsModal
+        isOpen={isShortcutsOpen}
+        onClose={() => setIsShortcutsOpen(false)}
+      />
+
+      {/* Global Toast Notification System */}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }
