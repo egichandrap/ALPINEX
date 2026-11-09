@@ -45,6 +45,7 @@ export interface PerformanceReport {
   p50Latency: number;
   errorRate: number;
   verdict: 'PASSED' | 'BREACH';
+  failureReason?: string;
   timestamp: string;
   logs: string[];
   metrics: PerformanceMetricPoint[];

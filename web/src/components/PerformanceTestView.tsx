@@ -135,6 +135,7 @@ export const PerformanceTestView: React.FC<PerformanceTestViewProps> = ({
   const [liveLogs, setLiveLogs] = useState<string[]>([]);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const executionTimerRef = useRef<any>(null);
+  const accumulatedMetricsRef = useRef<Record<string, PerformanceMetricPoint[]>>({});
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   // Reload when project changes
@@ -305,106 +306,246 @@ export const PerformanceTestView: React.FC<PerformanceTestViewProps> = ({
     return isNaN(num) ? 30 : Math.max(5, Math.round(num));
   };
 
-  // Launch Performance Execution (Single or Multiple in Parallel)
-  const runPerformanceTests = (targets: PerformanceScenario[]) => {
+  // Resolve Target URL (replacing {{base_url}} or relative path)
+  const resolveTargetUrl = (scen: PerformanceScenario): string => {
+    let url = scen.url.trim();
+    const boundCol = collections.find((c) => c.id === scen.collectionId) || collections[0];
+    const baseUrl = (boundCol?.baseUrl || 'http://localhost:8080').replace(/\/$/, '');
+    if (url.includes('{{base_url}}')) {
+      url = url.replace(/\{\{base_url\}\}/g, baseUrl);
+    } else if (url.startsWith('/')) {
+      url = `${baseUrl}${url}`;
+    }
+    return url;
+  };
+
+  interface ProbeResult {
+    success: boolean;
+    latency: number;
+    status: number;
+    statusText: string;
+    error?: string;
+  }
+
+  // Execute an actual HTTP network probe against the target endpoint
+  const executeSingleProbe = async (
+    scen: PerformanceScenario,
+    targetUrl: string,
+    token: string | null
+  ): Promise<ProbeResult> => {
+    const start = performance.now();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 7000);
+
+    try {
+      const headers: Record<string, string> = {
+        Accept: 'application/json, text/plain, */*',
+      };
+      if (scen.method !== 'GET' && scen.method !== 'HEAD') {
+        headers['Content-Type'] = 'application/json';
+      }
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const res = await fetch(targetUrl, {
+        method: scen.method,
+        headers,
+        body: scen.method !== 'GET' && scen.method !== 'HEAD' && scen.body?.trim() ? scen.body : undefined,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+      const latency = Math.round(performance.now() - start);
+      const isHttpOk = res.status >= 200 && res.status < 400;
+
+      return {
+        success: isHttpOk,
+        latency,
+        status: res.status,
+        statusText: res.statusText || `${res.status}`,
+        error: isHttpOk ? undefined : `HTTP ${res.status} ${res.statusText || ''}`.trim(),
+      };
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      const latency = Math.round(performance.now() - start);
+      let errorMsg =
+        err.name === 'AbortError'
+          ? 'Connection Timeout (7000ms)'
+          : err.message || 'Network Failure';
+
+      if (errorMsg === 'Failed to fetch') {
+        errorMsg = 'Failed to fetch (Endpoint unreachable — Check VPN / Intranet / CORS)';
+      }
+
+      return {
+        success: false,
+        latency,
+        status: 0,
+        statusText: 'Network Error',
+        error: errorMsg,
+      };
+    }
+  };
+
+  // Launch Performance Execution (Single or Multiple in Parallel) with REAL HTTP Requests
+  const runPerformanceTests = async (targets: PerformanceScenario[]) => {
     if (targets.length === 0) return;
 
     if (executionTimerRef.current) {
       clearInterval(executionTimerRef.current);
+      executionTimerRef.current = null;
     }
 
     const targetIds = targets.map((t) => t.id);
     setRunningScenarioIds(targetIds);
     setElapsedSeconds(0);
 
+    accumulatedMetricsRef.current = {};
+    targets.forEach((t) => {
+      accumulatedMetricsRef.current[t.id] = [];
+    });
+
     const isParallel = targets.length > 1;
     const startTimestamp = new Date().toLocaleTimeString();
 
-    const initialLogs = [
-      `🚀 [${startTimestamp}] Initializing Grafana k6 Engine v2.3.0...`,
+    const targetUrlMap: Record<string, string> = {};
+    targets.forEach((t) => {
+      targetUrlMap[t.id] = resolveTargetUrl(t);
+    });
+
+    setLiveLogs([
+      `🚀 [${startTimestamp}] Initializing AlpineX Live k6 Engine v2.3.0...`,
       `⚙️ Orchestration Mode: ${isParallel ? `PARALLEL CONCURRENT WORKLOAD (${targets.length} endpoints)` : `ISOLATED ENDPOINT WORKLOAD`}`,
       ...targets.map(
-        (t) => `  ▶ Target [${t.method}] "${t.name}" -> ${t.profile} Profile (${t.targetVUs} VUs, ${t.duration}, P95 SLA: ${t.p95Threshold}ms)`
+        (t) =>
+          `  ▶ Target [${t.method}] "${t.name}" -> ${t.profile} Profile (${t.targetVUs} VUs, ${t.duration}, P95 SLA: ${t.p95Threshold}ms)`
       ),
-      `─────────────────────────────────────────────────────────────────────────────`,
-    ];
-    setLiveLogs(initialLogs);
+      `🔍 Running preflight connectivity verification...`,
+    ]);
 
-    // Track simulated metrics history per target during execution
-    const accumulatedMetrics: Record<string, PerformanceMetricPoint[]> = {};
-    targets.forEach((t) => {
-      accumulatedMetrics[t.id] = [];
-    });
+    // Preflight connectivity verification: Check if target endpoints are reachable
+    let anyUnreachable = false;
+    for (const t of targets) {
+      const targetUrl = targetUrlMap[t.id];
+      const preflight = await executeSingleProbe(t, targetUrl, authToken);
+      if (!preflight.success) {
+        anyUnreachable = true;
+        setLiveLogs((prev) => [
+          ...prev,
+          `❌ [PREFLIGHT FAILED] Target "${t.name}" (${targetUrl}) is UNREACHABLE!`,
+          `   ↳ Reason: ${preflight.error}. If this host requires VPN or corporate intranet, make sure VPN is ACTIVE.`,
+        ]);
+      } else {
+        setLiveLogs((prev) => [
+          ...prev,
+          `✅ [PREFLIGHT OK] Target "${t.name}" responded HTTP ${preflight.status} (${preflight.latency}ms). Connectivity verified.`,
+        ]);
+      }
+    }
+
+    if (anyUnreachable) {
+      setLiveLogs((prev) => [
+        ...prev,
+        `⚠️ WARNING: Unreachable target(s) detected. Load testing will run real requests, but connection failures will trigger SLA BREACH.`,
+      ]);
+    }
+
+    setLiveLogs((prev) => [
+      ...prev,
+      `─────────────────────────────────────────────────────────────────────────────`,
+      `⚡ Dispatched concurrent worker threads to target endpoints...`,
+    ]);
 
     const maxTestSeconds = Math.max(...targets.map((t) => parseDurationToSeconds(t.duration)));
     let currentSecond = 0;
+    let isTickRunning = false;
 
-    const timer = setInterval(() => {
-      currentSecond += 1;
-      setElapsedSeconds(currentSecond);
+    const timer = setInterval(async () => {
+      if (isTickRunning) return;
+      isTickRunning = true;
 
-      const latestRollup: Record<string, PerformanceMetricPoint> = {};
+      try {
+        currentSecond += 1;
+        setElapsedSeconds(currentSecond);
 
-      targets.forEach((scen) => {
-        const scenDurationSec = parseDurationToSeconds(scen.duration);
-        const isActive = currentSecond <= scenDurationSec;
+        const latestRollup: Record<string, PerformanceMetricPoint> = {};
 
-        // Simulate realistic metric patterns according to workload profile
-        let rpsMultiplier = 1;
-        let baseLatency = 45;
-        let jitter = (Math.random() - 0.5) * 15;
+        await Promise.all(
+          targets.map(async (scen) => {
+            const scenDurationSec = parseDurationToSeconds(scen.duration);
+            const isActive = currentSecond <= scenDurationSec;
+            if (!isActive) return;
 
-        if (scen.profile === 'SMOKE') {
-          rpsMultiplier = 4;
-          baseLatency = 35;
-        } else if (scen.profile === 'LOAD') {
-          rpsMultiplier = 28;
-          baseLatency = 65;
-        } else if (scen.profile === 'STRESS') {
-          rpsMultiplier = 75;
-          baseLatency = 140;
-        } else if (scen.profile === 'SPIKE') {
-          rpsMultiplier = currentSecond > 5 && currentSecond < 20 ? 120 : 15;
-          baseLatency = currentSecond > 5 && currentSecond < 20 ? 280 : 50;
+            const targetUrl = targetUrlMap[scen.id];
+
+            // Batch sizing based on workload profile & target VUs
+            let batchSize = 1;
+            if (scen.profile === 'SMOKE') {
+              batchSize = Math.max(1, Math.min(scen.targetVUs, 5));
+            } else if (scen.profile === 'LOAD') {
+              batchSize = Math.max(2, Math.min(scen.targetVUs, 12));
+            } else if (scen.profile === 'STRESS') {
+              batchSize = Math.max(4, Math.min(scen.targetVUs, 20));
+            } else if (scen.profile === 'SPIKE') {
+              batchSize =
+                currentSecond > 5 && currentSecond < 20
+                  ? Math.max(8, Math.min(scen.targetVUs, 30))
+                  : Math.max(2, Math.min(scen.targetVUs, 6));
+            }
+
+            // Execute real network HTTP requests
+            const batchPromises = Array.from({ length: batchSize }).map(() =>
+              executeSingleProbe(scen, targetUrl, authToken)
+            );
+            const results = await Promise.all(batchPromises);
+
+            const totalCount = results.length;
+            const failedCount = results.filter((r) => !r.success).length;
+            const currentErrorRate = totalCount > 0 ? failedCount / totalCount : 0;
+
+            const latencies = results.map((r) => r.latency).sort((a, b) => a - b);
+            const p95 = latencies.length > 0 ? latencies[Math.floor(latencies.length * 0.95)] : 0;
+
+            const metricPoint: PerformanceMetricPoint = {
+              time: new Date().toLocaleTimeString(),
+              vus: scen.targetVUs,
+              rps: totalCount,
+              p95,
+              errorRate: Math.round(currentErrorRate * 100) / 100,
+            };
+
+            if (!accumulatedMetricsRef.current[scen.id]) {
+              accumulatedMetricsRef.current[scen.id] = [];
+            }
+            accumulatedMetricsRef.current[scen.id].push(metricPoint);
+            latestRollup[scen.id] = metricPoint;
+
+            // Live terminal log
+            if (failedCount > 0) {
+              const firstErr = results.find((r) => !r.success)?.error || 'Network Error';
+              const is100Percent = failedCount === totalCount;
+              const logLine = is100Percent
+                ? `❌ [${metricPoint.time}] [${scen.name.substring(0, 16)}] ALL ${totalCount} REQS FAILED (100% Error Rate) | ${firstErr}`
+                : `⚠️ [${metricPoint.time}] [${scen.name.substring(0, 16)}] ${failedCount}/${totalCount} failed (${Math.round(currentErrorRate * 100)}% err) | P95: ${p95}ms`;
+              setLiveLogs((prev) => [...prev.slice(-150), logLine]);
+            } else if (currentSecond % 2 === 0) {
+              const isSlaOk = p95 <= scen.p95Threshold;
+              const logLine = `✔ [${metricPoint.time}] [${scen.name.substring(0, 16)}] k6: VUs=${scen.targetVUs} RPS=${totalCount} p(95)=${p95}ms | SLA: ${isSlaOk ? 'PASS' : 'BREACH'}`;
+              setLiveLogs((prev) => [...prev.slice(-150), logLine]);
+            }
+          })
+        );
+
+        setLiveMetrics((prev) => ({ ...prev, ...latestRollup }));
+
+        if (currentSecond >= maxTestSeconds) {
+          clearInterval(timer);
+          executionTimerRef.current = null;
+          stopPerformanceTests(targets, accumulatedMetricsRef.current);
         }
-
-        const calculatedVUs = isActive ? Math.round(scen.targetVUs * Math.min(1, currentSecond / 3)) : 0;
-        const currentRps = isActive ? Math.max(1, Math.round(calculatedVUs * (rpsMultiplier / 10) + (Math.random() * 8))) : 0;
-        const calculatedP95 = isActive ? Math.round(baseLatency + (calculatedVUs * 0.7) + jitter) : 0;
-        const calculatedErrorRate = isActive && scen.profile === 'STRESS' && currentSecond > 15 ? 0.015 : 0;
-
-        const metricPoint: PerformanceMetricPoint = {
-          time: new Date().toLocaleTimeString(),
-          vus: calculatedVUs,
-          rps: currentRps,
-          p95: calculatedP95,
-          errorRate: calculatedErrorRate,
-        };
-
-        if (isActive) {
-          accumulatedMetrics[scen.id].push(metricPoint);
-        }
-        latestRollup[scen.id] = metricPoint;
-      });
-
-      setLiveMetrics(latestRollup);
-
-      // Add log line every 2 seconds
-      if (currentSecond % 2 === 0) {
-        targets.forEach((scen) => {
-          const m = latestRollup[scen.id];
-          if (m && m.vus > 0) {
-            const isSlaOk = m.p95 <= scen.p95Threshold;
-            const logLine = `[${m.time}] [${scen.name.substring(0, 18)}] k6: VUs=${m.vus} RPS=${m.rps} p(95)=${m.p95}ms | SLA: ${isSlaOk ? 'PASS' : 'BREACH'}`;
-            setLiveLogs((prev) => [...prev.slice(-150), logLine]);
-          }
-        });
-      }
-
-      // Check if test duration reached
-      if (currentSecond >= maxTestSeconds) {
-        clearInterval(timer);
-        stopPerformanceTests(targets, accumulatedMetrics);
+      } finally {
+        isTickRunning = false;
       }
     }, 1000);
 
@@ -423,18 +564,37 @@ export const PerformanceTestView: React.FC<PerformanceTestViewProps> = ({
 
     setRunningScenarioIds([]);
 
+    const historyData = metricsHistory || accumulatedMetricsRef.current;
     const timestamp = new Date().toISOString();
     const newReports: PerformanceReport[] = [];
 
     targets.forEach((scen) => {
-      const history = (metricsHistory && metricsHistory[scen.id]) || [];
-      const totalReqs = history.reduce((sum, h) => sum + h.rps, 0) || scen.targetVUs * 120;
-      const peakRps = history.length > 0 ? Math.max(...history.map((h) => h.rps)) : scen.targetVUs * 2;
-      const avgRps = history.length > 0 ? Math.round(totalReqs / Math.max(1, history.length)) : scen.targetVUs * 1.5;
-      const p95Latency = history.length > 0 ? Math.round(history.reduce((sum, h) => sum + h.p95, 0) / history.length) : scen.p95Threshold - 40;
-      const p50Latency = Math.round(p95Latency * 0.65);
-      const avgErrorRate = history.length > 0 ? history.reduce((sum, h) => sum + h.errorRate, 0) / history.length : 0;
-      const verdict = p95Latency <= scen.p95Threshold && avgErrorRate < 0.05 ? 'PASSED' : 'BREACH';
+      const history = (historyData && historyData[scen.id]) || [];
+      const totalReqs = history.reduce((sum, h) => sum + h.rps, 0);
+      const totalErrors = history.reduce((sum, h) => sum + Math.round(h.rps * h.errorRate), 0);
+      const peakRps = history.length > 0 ? Math.max(...history.map((h) => h.rps)) : 0;
+      const avgRps = history.length > 0 ? Math.round(totalReqs / Math.max(1, history.length)) : 0;
+      const p95Latency = history.length > 0 ? Math.round(history.reduce((sum, h) => sum + h.p95, 0) / history.length) : 0;
+      const p50Latency = Math.round(p95Latency * 0.7);
+      const avgErrorRate = totalReqs > 0 ? Math.round((totalErrors / totalReqs) * 100) / 100 : 1.0;
+
+      // Determine Verdict & Failure Reason
+      let verdict: 'PASSED' | 'BREACH' = 'PASSED';
+      let failureReason: string | undefined = undefined;
+
+      if (totalReqs === 0) {
+        verdict = 'BREACH';
+        failureReason = 'No requests completed. Endpoint unreachable (Check VPN connection or target host).';
+      } else if (totalErrors === totalReqs || avgErrorRate >= 0.99) {
+        verdict = 'BREACH';
+        failureReason = '100% of requests failed to connect (Failed to fetch). Endpoint unreachable — please verify your VPN connection.';
+      } else if (avgErrorRate > 0.05) {
+        verdict = 'BREACH';
+        failureReason = `High error rate: ${(avgErrorRate * 100).toFixed(1)}% of requests failed HTTP status assertions or timed out.`;
+      } else if (p95Latency > scen.p95Threshold) {
+        verdict = 'BREACH';
+        failureReason = `P95 tail latency (${p95Latency}ms) breached configured SLA threshold (${scen.p95Threshold}ms).`;
+      }
 
       const report: PerformanceReport = {
         id: `rep-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -454,13 +614,15 @@ export const PerformanceTestView: React.FC<PerformanceTestViewProps> = ({
         p50Latency,
         errorRate: avgErrorRate,
         verdict,
+        failureReason,
         timestamp,
         logs: [
           `Target: [${scen.method}] ${scen.url}`,
           `Profile: ${scen.profile} (${scen.targetVUs} VUs, ${scen.duration})`,
-          `Total Throughput: ${totalReqs.toLocaleString()} requests completed (Peak: ${peakRps} RPS)`,
+          `Total Sent: ${totalReqs.toLocaleString()} requests completed (${totalErrors} errors, Peak: ${peakRps} RPS)`,
           `P95 Tail Latency: ${p95Latency}ms vs SLA Threshold: ${scen.p95Threshold}ms`,
           `Verdict: ${verdict === 'PASSED' ? '✅ SLA MET' : '❌ SLA BREACH'}`,
+          ...(failureReason ? [`Diagnostic Reason: ${failureReason}`] : []),
         ],
         metrics: history,
       };
@@ -897,17 +1059,43 @@ export default function () {
                 </div>
               ) : (
                 liveLogs.map((log, index) => {
-                  const isBreach = log.includes('BREACH');
-                  const isPass = log.includes('PASS') || log.includes('MET');
-                  const isHeader = log.includes('🚀') || log.includes('⚙️') || log.includes('🏁');
+                  const isError =
+                    log.includes('❌') ||
+                    log.includes('BREACH') ||
+                    log.includes('FAILED') ||
+                    log.includes('UNREACHABLE') ||
+                    log.includes('Failed to fetch');
+                  const isWarning = log.includes('⚠️') || log.includes('WARNING');
+                  const isPass =
+                    log.includes('✔') ||
+                    log.includes('PASS') ||
+                    log.includes('MET') ||
+                    log.includes('✅');
+                  const isHeader =
+                    log.includes('🚀') ||
+                    log.includes('⚙️') ||
+                    log.includes('🏁') ||
+                    log.includes('⚡');
 
                   return (
                     <div
                       key={index}
                       style={{
-                        color: isBreach ? '#fca5a5' : isPass ? '#6ee7b7' : isHeader ? '#38bdf8' : '#d1d5db',
-                        backgroundColor: isBreach ? 'rgba(239, 68, 68, 0.1)' : 'transparent',
-                        padding: isBreach ? '2px 6px' : '1px 0',
+                        color: isError
+                          ? '#fca5a5'
+                          : isWarning
+                          ? '#fde047'
+                          : isPass
+                          ? '#6ee7b7'
+                          : isHeader
+                          ? '#38bdf8'
+                          : '#d1d5db',
+                        backgroundColor: isError
+                          ? 'rgba(239, 68, 68, 0.15)'
+                          : isWarning
+                          ? 'rgba(234, 179, 8, 0.1)'
+                          : 'transparent',
+                        padding: isError || isWarning ? '2px 6px' : '1px 0',
                         borderRadius: '3px',
                       }}
                     >
@@ -1064,6 +1252,31 @@ export default function () {
                     {/* Expanded Report Details & Telemetry */}
                     {isExpanded && (
                       <div style={{ padding: '16px', borderTop: '1px solid #1f2937', backgroundColor: '#0b0f19' }}>
+                        {rep.failureReason && (
+                          <div
+                            style={{
+                              backgroundColor: '#450a0a',
+                              border: '1px solid #991b1b',
+                              color: '#fca5a5',
+                              padding: '12px 16px',
+                              borderRadius: '6px',
+                              marginBottom: '16px',
+                              fontSize: '12px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '10px',
+                            }}
+                          >
+                            <AlertTriangle size={18} color="#ef4444" style={{ flexShrink: 0 }} />
+                            <div>
+                              <div style={{ fontWeight: 'bold', color: '#f87171' }}>
+                                Diagnostic Failure / Network Error:
+                              </div>
+                              <div style={{ marginTop: '2px', color: '#fecaca' }}>{rep.failureReason}</div>
+                            </div>
+                          </div>
+                        )}
+
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '16px' }}>
                           <div style={{ backgroundColor: '#111827', padding: '12px', borderRadius: '6px', border: '1px solid #1f2937' }}>
                             <div style={{ fontSize: '11px', color: '#9ca3af' }}>TOTAL REQUESTS</div>
@@ -1086,7 +1299,7 @@ export default function () {
                           </div>
                           <div style={{ backgroundColor: '#111827', padding: '12px', borderRadius: '6px', border: '1px solid #1f2937' }}>
                             <div style={{ fontSize: '11px', color: '#9ca3af' }}>ERROR RATE</div>
-                            <div style={{ fontSize: '18px', fontWeight: 'bold', color: rep.errorRate === 0 ? '#10b981' : '#f59e0b', marginTop: '2px' }}>
+                            <div style={{ fontSize: '18px', fontWeight: 'bold', color: rep.errorRate === 0 ? '#10b981' : '#ef4444', marginTop: '2px' }}>
                               {(rep.errorRate * 100).toFixed(2)}%
                             </div>
                           </div>
