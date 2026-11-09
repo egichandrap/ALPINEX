@@ -755,7 +755,7 @@ export default function App() {
               ALPINE<span className="x">X</span>
             </div>
             <div style={{ fontSize: '10px', color: '#9ca3af', marginTop: '2px', fontWeight: '500' }}>
-              v1.1.2 • API & Load Platform
+              v1.1.3 • API & Load Platform
             </div>
           </div>
         </div>
@@ -1572,8 +1572,8 @@ export default function App() {
                   />
                 </div>
 
-                {/* Interactive Telemetry Analytics: Diagram Batang & Candlestick Charts */}
-                <OverviewAnalytics projectName={activeProject.name} />
+                {/* Interactive Telemetry Analytics: Real Dynamic Throughput & Latency Charts */}
+                <OverviewAnalytics activeProject={activeProject} onNavigateTab={(tab) => setActiveTab(tab)} />
               </div>
             );
           })()}
