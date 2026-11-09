@@ -34,6 +34,7 @@ import { ProjectSwitcher } from './components/ProjectSwitcher';
 import { CollectionTree } from './components/CollectionTree';
 import { FunctionalSuitesView } from './components/FunctionalSuitesView';
 import { ReportsView } from './components/ReportsView';
+import { PerformanceTestView } from './components/PerformanceTestView';
 
 interface MetricPoint {
   time: string;
@@ -259,14 +260,6 @@ export default function App() {
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [requestModalColId, setRequestModalColId] = useState<string | null>(null);
   const [editingRequest, setEditingRequest] = useState<RequestItem | null>(null);
-
-  // Performance Test State
-  const [perfTestType, setPerfTestType] = useState('LOAD');
-  const [targetVUs, setTargetVUs] = useState(50);
-  const [duration, setDuration] = useState('1m');
-  const [p95Threshold, setP95Threshold] = useState('500');
-  const [isRunningPerf, setIsRunningPerf] = useState(false);
-  const [metrics, setMetrics] = useState<MetricPoint[]>([]);
 
   // Auth Handlers
   const handleLoginSuccess = (user: UserProfile, token: string) => {
@@ -582,35 +575,6 @@ export default function App() {
     }
   };
 
-  // Simulated Live k6 Test Run
-  useEffect(() => {
-    let interval: any;
-    if (isRunningPerf) {
-      interval = setInterval(() => {
-        setMetrics((prev) => {
-          const now = new Date().toLocaleTimeString();
-          const baseLatency = 45 + Math.random() * 20;
-          const newPoint: MetricPoint = {
-            time: now,
-            vus: targetVUs,
-            rps: Math.round(targetVUs * (8 + Math.random() * 3)),
-            p95: Math.round(baseLatency + (Math.random() > 0.9 ? 120 : 15)),
-            errorRate: Math.random() > 0.95 ? 0.005 : 0.0,
-          };
-          return [...prev.slice(-15), newPoint];
-        });
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [isRunningPerf, targetVUs]);
-
-  const latestMetric = metrics[metrics.length - 1] || {
-    vus: 0,
-    rps: 0,
-    p95: 0,
-    errorRate: 0,
-  };
-
   // Auth Gate: Render Login Page if user is not authenticated
   if (!currentUser || !authToken) {
     return <LoginPage onLoginSuccess={handleLoginSuccess} />;
@@ -644,7 +608,7 @@ export default function App() {
           </div>
           <div>
             <h1 style={{ fontSize: '16px', fontWeight: 'bold', letterSpacing: '0.5px' }}>ALPINEX</h1>
-            <span style={{ fontSize: '11px', color: '#9ca3af' }}>v1.0.3 • Community</span>
+            <span style={{ fontSize: '11px', color: '#9ca3af' }}>v1.0.4 • Community</span>
           </div>
         </div>
 
@@ -1054,122 +1018,11 @@ export default function App() {
           )}
 
           {activeTab === 'performance' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '1000px' }}>
-              <div>
-                <h2 style={{ fontSize: '20px', fontWeight: 'bold' }}>Performance Test Designer (k6 Engine)</h2>
-                <p style={{ fontSize: '13px', color: '#9ca3af', marginTop: '4px' }}>
-                  Configure workloads, VUs, and SLA thresholds without writing manual scripts.
-                </p>
-              </div>
-
-              {/* Workload Profile Card */}
-              <div style={{ backgroundColor: '#111827', padding: '20px', borderRadius: '8px', border: '1px solid #1f2937' }}>
-                <h3 style={{ fontSize: '14px', fontWeight: 'bold', color: '#e5e7eb', marginBottom: '16px' }}>1. Workload Model</h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '20px' }}>
-                  {['SMOKE', 'LOAD', 'STRESS', 'SPIKE'].map((type) => (
-                    <div
-                      key={type}
-                      onClick={() => setPerfTestType(type)}
-                      style={{
-                        padding: '12px',
-                        borderRadius: '6px',
-                        border: perfTestType === type ? '2px solid #6366f1' : '1px solid #374151',
-                        backgroundColor: perfTestType === type ? '#1e1b4b' : '#0b0f19',
-                        cursor: 'pointer',
-                        textAlign: 'center',
-                      }}
-                    >
-                      <div style={{ fontWeight: 'bold', fontSize: '13px' }}>{type} TEST</div>
-                      <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px' }}>
-                        {type === 'SMOKE' ? '1-5 VUs verification' : type === 'LOAD' ? 'Expected baseline' : type === 'STRESS' ? 'Capacity threshold' : 'Sudden traffic burst'}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
-                  <div>
-                    <label style={{ fontSize: '12px', color: '#9ca3af', display: 'block', marginBottom: '6px' }}>Virtual Users (VUs):</label>
-                    <input
-                      type="number"
-                      value={targetVUs}
-                      onChange={(e) => setTargetVUs(Number(e.target.value))}
-                      style={{ width: '100%', backgroundColor: '#0b0f19', border: '1px solid #374151', padding: '8px', borderRadius: '4px', color: '#f3f4f6' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '12px', color: '#9ca3af', display: 'block', marginBottom: '6px' }}>Test Duration:</label>
-                    <input
-                      type="text"
-                      value={duration}
-                      onChange={(e) => setDuration(e.target.value)}
-                      placeholder="e.g. 5m, 30s"
-                      style={{ width: '100%', backgroundColor: '#0b0f19', border: '1px solid #374151', padding: '8px', borderRadius: '4px', color: '#f3f4f6' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '12px', color: '#9ca3af', display: 'block', marginBottom: '6px' }}>P95 Latency SLA (ms):</label>
-                    <input
-                      type="number"
-                      value={p95Threshold}
-                      onChange={(e) => setP95Threshold(e.target.value)}
-                      style={{ width: '100%', backgroundColor: '#0b0f19', border: '1px solid #374151', padding: '8px', borderRadius: '4px', color: '#f3f4f6' }}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <button
-                  onClick={() => setIsRunningPerf(!isRunningPerf)}
-                  style={{
-                    backgroundColor: isRunningPerf ? '#ef4444' : '#10b981',
-                    color: 'white',
-                    padding: '12px 24px',
-                    borderRadius: '6px',
-                    border: 'none',
-                    fontWeight: 'bold',
-                    fontSize: '14px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                  }}
-                >
-                  {isRunningPerf ? <Square size={16} /> : <Play size={16} />}
-                  {isRunningPerf ? 'Emergency Stop Test' : 'Run Performance Test (k6)'}
-                </button>
-              </div>
-
-              {/* Real-time Telemetry Dashboard */}
-              {isRunningPerf && (
-                <div style={{ backgroundColor: '#111827', padding: '20px', borderRadius: '8px', border: '1px solid #1f2937' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#10b981', animation: 'pulse 1s infinite' }} />
-                      <span style={{ fontWeight: 'bold', fontSize: '14px' }}>LIVE METRICS STREAM (1s Rollup)</span>
-                    </div>
-                    <span style={{ fontSize: '12px', color: '#9ca3af' }}>Engine: <strong>Grafana k6 v2.3.0</strong></span>
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '20px' }}>
-                    <MetricCard title="ACTIVE VIRTUAL USERS" value={latestMetric.vus} unit="VUs" color="#6366f1" />
-                    <MetricCard title="THROUGHPUT (RPS)" value={latestMetric.rps} unit="req/sec" color="#38bdf8" />
-                    <MetricCard title="P95 LATENCY" value={latestMetric.p95} unit="ms" color={latestMetric.p95 > Number(p95Threshold) ? '#ef4444' : '#10b981'} />
-                    <MetricCard title="ERROR RATE" value={`${(latestMetric.errorRate * 100).toFixed(2)}%`} unit="errors" color="#f59e0b" />
-                  </div>
-
-                  <div style={{ backgroundColor: '#0b0f19', padding: '12px', borderRadius: '4px', border: '1px solid #1f2937', fontFamily: 'monospace', fontSize: '12px', height: '140px', overflowY: 'auto' }}>
-                    {metrics.map((m, idx) => (
-                      <div key={idx} style={{ color: '#9ca3af', marginBottom: '2px' }}>
-                        [{m.time}] k6: VUs={m.vus} RPS={m.rps} p(95)={m.p95}ms ErrorRate={m.errorRate} | Target SLA {p95Threshold}ms ({m.p95 <= Number(p95Threshold) ? 'PASS' : 'BREACH'})
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+            <PerformanceTestView
+              authToken={authToken}
+              activeProject={activeProject}
+              collections={collections}
+            />
           )}
 
           {activeTab === 'functional' && (
@@ -1181,7 +1034,7 @@ export default function App() {
           )}
 
           {activeTab === 'reports' && (
-            <ReportsView />
+            <ReportsView activeProject={activeProject} />
           )}
 
           {activeTab === 'dashboard' && (
