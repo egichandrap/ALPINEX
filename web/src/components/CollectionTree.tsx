@@ -89,9 +89,7 @@ export const CollectionTree: React.FC<CollectionTreeProps> = ({
   onDeleteRequest,
   getMethodBadgeStyle,
 }) => {
-  const [expandedCollections, setExpandedCollections] = useState<Record<string, boolean>>({
-    'col-storefront': true,
-  });
+  const [expandedCollections, setExpandedCollections] = useState<Record<string, boolean>>({});
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -380,6 +378,7 @@ export const CollectionTree: React.FC<CollectionTreeProps> = ({
             <Minimize2 size={12} />
           </button>
           <button
+            data-tour="add-collection-btn"
             onClick={onOpenAddCollection}
             title="Add Collection (Manual, Postman, Swagger)"
             style={{

@@ -68,7 +68,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
   return (
     <>
       {/* Project Switcher Box in Sidebar */}
-      <div ref={dropdownRef} style={{ position: 'relative', margin: '12px' }}>
+      <div ref={dropdownRef} data-tour="project-switcher" style={{ position: 'relative', margin: '12px' }}>
         <div
           onClick={() => setIsOpen(!isOpen)}
           style={{

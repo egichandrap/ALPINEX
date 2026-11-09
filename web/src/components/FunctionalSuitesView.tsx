@@ -533,6 +533,7 @@ export const FunctionalSuitesView: React.FC<FunctionalSuitesViewProps> = ({
           </p>
         </div>
         <button
+          data-tour="new-suite-btn"
           onClick={() => {
             setSelectedCollectionId(collections[0]?.id || '');
             setAutoImportEndpoints(true);

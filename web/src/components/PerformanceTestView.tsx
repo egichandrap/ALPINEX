@@ -674,6 +674,7 @@ export default function () {
 
         <div style={{ display: 'flex', gap: '10px' }}>
           <button
+            data-tour="add-perf-target-btn"
             onClick={handleOpenAddModal}
             disabled={isAnyRunning}
             style={{

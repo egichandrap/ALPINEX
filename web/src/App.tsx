@@ -579,7 +579,7 @@ export default function App() {
           </div>
           <div>
             <h1 style={{ fontSize: '16px', fontWeight: 'bold', letterSpacing: '0.5px' }}>ALPINEX</h1>
-            <span style={{ fontSize: '11px', color: '#9ca3af' }}>v1.0.6 • Community</span>
+            <span style={{ fontSize: '11px', color: '#9ca3af' }}>v1.0.7 • Community</span>
           </div>
         </div>
 
@@ -593,7 +593,7 @@ export default function App() {
         />
 
         {/* Navigation Items */}
-        <nav style={{ flex: 1, padding: '0 12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <nav data-tour="nav-sidebar" style={{ flex: 1, padding: '0 12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
           <NavItem icon={<LayoutDashboard size={18} />} label="Overview" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
           <NavItem icon={<Layers size={18} />} label="API Collections" active={activeTab === 'api'} onClick={() => setActiveTab('api')} />
           <NavItem icon={<CheckCircle2 size={18} />} label="Functional Suites" active={activeTab === 'functional'} onClick={() => setActiveTab('functional')} />
@@ -638,6 +638,7 @@ export default function App() {
 
             {/* Tutorial Tour Trigger Button */}
             <button
+              data-tour="tutorial-btn"
               onClick={() => setIsTutorialOpen(true)}
               style={{
                 backgroundColor: '#1e1b4b',
@@ -847,6 +848,7 @@ export default function App() {
                     style={{ flex: 1, backgroundColor: '#0b0f19', border: '1px solid #374151', borderRadius: '4px', padding: '8px 12px', color: '#f3f4f6', fontSize: '14px' }}
                   />
                   <button
+                    data-tour="send-request-btn"
                     onClick={handleSendRequest}
                     disabled={loading}
                     style={{ backgroundColor: '#6366f1', color: 'white', border: 'none', borderRadius: '4px', padding: '8px 20px', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '600', cursor: 'pointer' }}
