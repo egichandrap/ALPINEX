@@ -53,4 +53,5 @@ type WorkspaceUseCase interface {
 	CreateWorkspace(ctx context.Context, input CreateWorkspaceInput) (*workspace.Workspace, error)
 	CreateProject(ctx context.Context, input CreateProjectInput) (*workspace.Project, error)
 	ListProjects(ctx context.Context, workspaceID string) ([]*workspace.Project, error)
+	DeleteProject(ctx context.Context, projectID string) error
 }

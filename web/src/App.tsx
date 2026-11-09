@@ -319,6 +319,40 @@ export default function App() {
     setActiveProject(newProj);
   };
 
+  // Delete Project Handler
+  const handleDeleteProject = async (projectId: string) => {
+    if (authToken) {
+      try {
+        await fetch(`${getApiUrl()}/api/v1/projects/${projectId}`, {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+          },
+        });
+      } catch (err) {
+        console.warn('Backend project deletion fallback to local', err);
+      }
+    }
+
+    // Clean up project-scoped data from localStorage
+    try {
+      localStorage.removeItem(getProjectCollectionsKey(projectId));
+      localStorage.removeItem(`alpinex_functional_suites_${projectId}`);
+    } catch (e) {
+      console.error('Failed to clean up project data from localStorage', e);
+    }
+
+    const remaining = projects.filter((p) => p.id !== projectId);
+    const nextProjects = remaining.length > 0 ? remaining : DEFAULT_PROJECTS;
+    setProjects(nextProjects);
+
+    // If active project was deleted, switch to the next available project
+    if (activeProject.id === projectId) {
+      const nextActive = nextProjects[0];
+      setActiveProject(nextActive);
+    }
+  };
+
   // Find active request and its containing collection
   const activeContext = React.useMemo(() => {
     for (const col of collections) {
@@ -610,7 +644,7 @@ export default function App() {
           </div>
           <div>
             <h1 style={{ fontSize: '16px', fontWeight: 'bold', letterSpacing: '0.5px' }}>ALPINEX</h1>
-            <span style={{ fontSize: '11px', color: '#9ca3af' }}>v1.0.2 • Community</span>
+            <span style={{ fontSize: '11px', color: '#9ca3af' }}>v1.0.3 • Community</span>
           </div>
         </div>
 
@@ -620,6 +654,7 @@ export default function App() {
           projects={projects}
           onSelectProject={setActiveProject}
           onCreateProject={handleCreateProject}
+          onDeleteProject={handleDeleteProject}
         />
 
         {/* Navigation Items */}

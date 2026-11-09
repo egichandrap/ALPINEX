@@ -27,6 +27,7 @@ type WorkspaceRepository interface {
 	SaveProject(ctx context.Context, proj *workspace.Project) error
 	FindProjectByID(ctx context.Context, id string) (*workspace.Project, error)
 	ListProjectsByWorkspace(ctx context.Context, wsID string) ([]*workspace.Project, error)
+	DeleteProject(ctx context.Context, id string) error
 }
 
 type EnvironmentRepository interface {

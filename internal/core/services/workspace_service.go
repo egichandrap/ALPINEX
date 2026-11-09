@@ -59,3 +59,7 @@ func (s *WorkspaceService) CreateProject(ctx context.Context, input in.CreatePro
 func (s *WorkspaceService) ListProjects(ctx context.Context, workspaceID string) ([]*workspace.Project, error) {
 	return s.repo.ListProjectsByWorkspace(ctx, workspaceID)
 }
+
+func (s *WorkspaceService) DeleteProject(ctx context.Context, projectID string) error {
+	return s.repo.DeleteProject(ctx, projectID)
+}

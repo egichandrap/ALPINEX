@@ -139,6 +139,19 @@ func (h *Handler) HandleListProjects(w http.ResponseWriter, r *http.Request) {
 	JSONResponse(w, r, http.StatusOK, projects)
 }
 
+func (h *Handler) HandleDeleteProject(w http.ResponseWriter, r *http.Request) {
+	projID := r.PathValue("id")
+	if projID == "" {
+		JSONError(w, r, http.StatusBadRequest, "BAD_REQUEST", "Project ID is required", nil)
+		return
+	}
+	if err := h.workspaceUseCase.DeleteProject(r.Context(), projID); err != nil {
+		JSONError(w, r, http.StatusInternalServerError, "DELETE_PROJECT_FAILED", err.Error(), nil)
+		return
+	}
+	JSONResponse(w, r, http.StatusOK, map[string]string{"message": "Project deleted successfully"})
+}
+
 // Collection & Request Handlers
 func (h *Handler) HandleCreateCollection(w http.ResponseWriter, r *http.Request) {
 	projID := r.PathValue("projId")

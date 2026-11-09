@@ -147,6 +147,13 @@ func (m *MemoryRepository) ListProjectsByWorkspace(ctx context.Context, wsID str
 	return res, nil
 }
 
+func (m *MemoryRepository) DeleteProject(ctx context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.projects, id)
+	return nil
+}
+
 // Environment Repo
 func (m *MemoryRepository) SaveEnvironment(ctx context.Context, env *environment.Environment) error {
 	m.mu.Lock()

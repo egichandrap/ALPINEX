@@ -24,6 +24,7 @@ func NewRouter(h *Handler, tokenService out.TokenService) http.Handler {
 	protectedMux.HandleFunc("POST /api/v1/workspaces", h.HandleCreateWorkspace)
 	protectedMux.HandleFunc("POST /api/v1/projects", h.HandleCreateProject)
 	protectedMux.HandleFunc("GET /api/v1/workspaces/{wsId}/projects", h.HandleListProjects)
+	protectedMux.HandleFunc("DELETE /api/v1/projects/{id}", h.HandleDeleteProject)
 
 	// Collections & Requests
 	protectedMux.HandleFunc("POST /api/v1/projects/{projId}/collections", h.HandleCreateCollection)
