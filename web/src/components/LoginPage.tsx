@@ -72,31 +72,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
         }}
       >
-        {/* Brand Header */}
+        {/* Brand Header with Official AlpineX Identity */}
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-          <div
-            style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '10px',
-              backgroundColor: '#6366f1',
-              color: 'white',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontWeight: 'bold',
-              fontSize: '22px',
-              margin: '0 auto 12px auto',
-              boxShadow: '0 0 20px rgba(99, 102, 241, 0.4)',
-            }}
-          >
-            ▲
+          <img
+            src="/favicon-alpinex.png"
+            alt="AlpineX Logo"
+            style={{ width: '56px', height: '56px', objectFit: 'contain', margin: '0 auto 12px auto', display: 'block' }}
+          />
+          <div className="alpinex-logo" style={{ fontSize: '26px', letterSpacing: '-1.2px', justifyContent: 'center' }}>
+            ALPINE<span className="x">X</span>
           </div>
-          <h1 style={{ fontSize: '20px', fontWeight: 'bold', letterSpacing: '0.5px', margin: 0, color: '#f3f4f6' }}>
-            ALPINEX
-          </h1>
           <p style={{ fontSize: '13px', color: '#9ca3af', margin: '6px 0 0 0' }}>
-            Open-Source API Testing & Performance Engineering
+            API Testing & Performance Platform
           </p>
         </div>
 

@@ -367,6 +367,19 @@ export const TutorialTour: React.FC<TutorialTourProps> = ({
 
         {/* Bubble Content */}
         <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {isWelcome && (
+            <div style={{ textAlign: 'center', marginBottom: '8px' }}>
+              <img
+                src="/favicon-alpinex.png"
+                alt="AlpineX"
+                style={{ width: '48px', height: '48px', objectFit: 'contain', margin: '0 auto 6px', display: 'block' }}
+              />
+              <div className="alpinex-logo" style={{ fontSize: '22px', letterSpacing: '-0.9px', justifyContent: 'center' }}>
+                ALPINE<span className="x">X</span>
+              </div>
+            </div>
+          )}
+
           <div>
             <h4 style={{ fontSize: '15px', fontWeight: 'bold', color: '#f3f4f6', margin: 0 }}>
               {currentStep.title}

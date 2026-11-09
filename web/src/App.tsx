@@ -572,14 +572,20 @@ export default function App() {
 
       {/* Sidebar */}
       <aside style={{ width: '260px', backgroundColor: '#111827', borderRight: '1px solid #1f2937', display: 'flex', flexDirection: 'column' }}>
-        {/* Brand Header */}
-        <div style={{ padding: '20px', borderBottom: '1px solid #1f2937', display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{ width: '32px', height: '32px', borderRadius: '8px', backgroundColor: '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '18px' }}>
-            ▲
-          </div>
+        {/* Brand Header with Official AlpineX Logo */}
+        <div style={{ padding: '16px 18px', borderBottom: '1px solid #1f2937', display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <img
+            src="/favicon-alpinex.png"
+            alt="AlpineX Symbol"
+            style={{ width: '32px', height: '32px', objectFit: 'contain', flexShrink: 0 }}
+          />
           <div>
-            <h1 style={{ fontSize: '16px', fontWeight: 'bold', letterSpacing: '0.5px' }}>ALPINEX</h1>
-            <span style={{ fontSize: '11px', color: '#9ca3af' }}>v1.0.7 • Community</span>
+            <div className="alpinex-logo" style={{ fontSize: '18px', letterSpacing: '-0.8px' }}>
+              ALPINE<span className="x">X</span>
+            </div>
+            <div style={{ fontSize: '10px', color: '#9ca3af', marginTop: '2px', fontWeight: '500' }}>
+              v1.0.7 • API & Load Platform
+            </div>
           </div>
         </div>
 
